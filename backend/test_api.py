@@ -4,7 +4,7 @@ API 測試腳本
 測試所有 Provider API 端點
 
 使用方法：
-1. 確保伺服器正在運行：uvicorn app.main:app --port 8001
+1. 確保伺服器正在運行：uvicorn app.main:app --port 8000
 2. 執行此腳本：python test_api.py
 """
 
@@ -13,7 +13,7 @@ import json
 from datetime import date, datetime
 
 # API 基礎 URL
-BASE_URL = "http://localhost:8001"
+BASE_URL = "http://localhost:8000"
 
 # 測試用的 ID（請根據實際資料庫內容修改）
 TEST_PROVIDER_ID = 1
@@ -273,9 +273,10 @@ if __name__ == "__main__":
     except requests.exceptions.ConnectionError:
         print("\n錯誤: 無法連接到伺服器！")
         print("請確保伺服器正在運行：")
-        print("  uvicorn app.main:app --port 8001")
+        print("  uvicorn app.main:app --port 8000")
     except Exception as e:
         print(f"\n發生錯誤: {e}")
         import traceback
         traceback.print_exc()
+
 

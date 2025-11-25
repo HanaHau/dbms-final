@@ -1,8 +1,8 @@
 #!/bin/bash
 # API 測試腳本 (使用 curl)
-# 請先確保伺服器正在運行：uvicorn app.main:app --port 8001
+# 請先確保伺服器正在運行：uvicorn app.main:app --port 8000
 
-BASE_URL="http://localhost:8001"
+BASE_URL="http://localhost:8000"
 
 # 測試用的 ID（請根據實際資料庫內容修改）
 PROVIDER_ID=1
@@ -115,4 +115,5 @@ echo ""
 echo "============================================================"
 echo "測試完成"
 echo "============================================================"
+
 
