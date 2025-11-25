@@ -1,10 +1,10 @@
 # Clinic Digital System API
 
-一個基於 FastAPI 的診所數位化系統後端 API，提供醫師端（Provider）的完整功能，包括帳號管理、門診時段管理、就診記錄、診斷與處方管理等。
+一個基於 FastAPI 的診所數位化系統後端 API，提供醫師端（Provider）和病人端（Patient）的完整功能，包括帳號管理、門診時段管理、掛號管理、就診記錄、診斷與處方管理、歷史記錄查詢、資料分析等。
 
 ## 📋 專案簡介
 
-本專案是一個診所管理系統的後端 API，主要實作了醫師端的功能。系統使用 PostgreSQL 作為主要資料庫，並整合 DuckDB 進行資料分析。所有 API 遵循 RESTful 設計原則，並提供完整的 Swagger 文檔。
+本專案是一個診所管理系統的後端 API，實作了醫師端和病人端的完整功能。系統使用 PostgreSQL 作為主要資料庫，並整合 DuckDB 進行資料分析。所有 API 遵循 RESTful 設計原則，並提供完整的 Swagger 文檔。
 
 ## 🛠 技術棧
 
@@ -26,15 +26,39 @@ dbms-final/
 ├── backend/
 │   ├── app/
 │   │   ├── __init__.py
-│   │   ├── main.py              # FastAPI 應用程式入口
-│   │   ├── config.py             # 配置管理（資料庫連線設定）
-│   │   ├── pg_base.py            # PostgreSQL 基礎功能（連線、ID 生成）
-│   │   ├── pg_provider.py        # Provider 相關的資料庫操作函數
-│   │   ├── router_provider.py    # Provider API 路由定義
-│   │   └── db_duck.py            # DuckDB 分析功能
-│   ├── requirements.txt          # Python 依賴套件
-│   ├── test_api.py               # Python API 測試腳本
-│   └── test_api.sh               # Shell API 測試腳本
+│   │   ├── main.py                    # FastAPI 應用程式入口
+│   │   ├── config.py                  # 配置管理（資料庫連線設定）
+│   │   ├── pg_basep.py                 # PostgreSQL 基礎功能（連線、ID 生成）
+│   │   ├── pg_provider.py             # Provider 相關的資料庫操作函數
+│   │   ├── router_provider.py         # Provider API 路由定義
+│   │   ├── db_duck.py                 # DuckDB 分析功能
+│   │   ├── repositories/              # 資料庫操作層（Repository Pattern）
+│   │   │   ├── __init__.py
+│   │   │   ├── provider_repo.py
+│   │   │   ├── session_repo.py
+│   │   │   ├── appointment_repo.py
+│   │   │   ├── encounter_repo.py
+│   │   │   ├── diagnosis_repo.py
+│   │   │   ├── prescription_repo.py
+│   │   │   ├── lab_result_repo.py
+│   │   │   └── payment_repo.py
+│   │   ├── services/                  # 業務邏輯層（Service Layer）
+│   │   │   ├── __init__.py
+│   │   │   ├── provider_service.py
+│   │   │   ├── patient_history_service.py
+│   │   │   └── shared/
+│   │   │       ├── __init__.py
+│   │   │       ├── session_service.py
+│   │   │       └── appointment_service.py
+│   │   ├── routers/                   # API 路由層
+│   │   │   ├── __init__.py
+│   │   │   └── patient_router.py
+│   │   └── analytics/                 # 資料分析功能
+│   │       ├── __init__.py
+│   │       └── patient_analysis.py
+│   ├── requirements.txt                # Python 依賴套件
+│   ├── test_api.py                     # Python API 測試腳本
+│   └── test_api.sh                     # Shell API 測試腳本
 └── README.md
 ```
 
@@ -75,6 +99,24 @@ dbms-final/
 ### 7. 資料分析
 - ✅ DuckDB 整合（用於資料分析查詢）
 - ✅ 每日看診統計功能
+- ✅ 病人統計分析（年度就診次數、科別分布、常見診斷）
+
+### 8. 病人端功能（Patient）
+- ✅ 查詢可預約門診時段 (`GET /patient/sessions`)
+- ✅ 列出所有掛號 (`GET /patient/appointments`)
+- ✅ 建立掛號 (`POST /patient/appointments`)
+  - 使用 transaction + FOR UPDATE 避免併行衝突
+  - 自動計算 slot_seq
+  - 寫入掛號狀態歷史
+- ✅ 取消掛號 (`DELETE /patient/appointments/{id}`)
+- ✅ 修改掛號（改期）(`PATCH /patient/appointments/{id}/reschedule`)
+  - 使用固定鎖序避免死鎖
+- ✅ 病人報到 (`POST /patient/appointments/{id}/checkin`)
+- ✅ 查詢完整歷史記錄 (`GET /patient/history`)
+  - 所有就診記錄
+  - 所有處方箋
+  - 所有檢驗結果
+  - 所有繳費記錄
 
 ## 🚀 安裝與設定
 
@@ -108,15 +150,21 @@ PG_PASSWORD=your_password
 ### 4. 資料庫準備
 
 確保 PostgreSQL 資料庫已建立，並且包含以下必要的資料表：
-- `USER`
-- `PROVIDER`
-- `DEPARTMENT`
-- `CLINIC_SESSION`
-- `APPOINTMENT`
-- `ENCOUNTER`
-- `DIAGNOSIS`
-- `PRESCRIPTION`
-- `PRESCRIPTION_ITEM`
+- `USER` - 使用者基本資料
+- `PROVIDER` - 醫師資料
+- `PATIENT` - 病人資料
+- `DEPARTMENT` - 科別資料
+- `CLINIC_SESSION` - 門診時段
+- `APPOINTMENT` - 掛號記錄
+- `APPOINTMENT_STATUS_HISTORY` - 掛號狀態歷史
+- `ENCOUNTER` - 就診記錄
+- `DIAGNOSIS` - 診斷記錄
+- `DISEASE` - 疾病資料
+- `PRESCRIPTION` - 處方箋
+- `INCLUDE` - 處方用藥明細
+- `MEDICATION` - 藥品資料
+- `LAB_RESULT` - 檢驗結果
+- `PAYMENT` - 繳費記錄
 - 以及其他相關資料表
 
 ## 🏃 執行方式
@@ -282,11 +330,58 @@ curl -X PUT "http://localhost:8000/provider/1/encounters/1/prescription" \
   }'
 ```
 
+#### 病人端 API 範例
+
+##### 查詢可預約門診時段
+```bash
+curl "http://localhost:8000/patient/sessions?dept_id=1&date=2024-01-01"
+```
+
+##### 建立掛號
+```bash
+curl -X POST "http://localhost:8000/patient/appointments?patient_id=1" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "session_id": 1
+  }'
+```
+
+##### 列出病人的所有掛號
+```bash
+curl "http://localhost:8000/patient/appointments?patient_id=1"
+```
+
+##### 取消掛號
+```bash
+curl -X DELETE "http://localhost:8000/patient/appointments/1?patient_id=1"
+```
+
+##### 修改掛號（改期）
+```bash
+curl -X PATCH "http://localhost:8000/patient/appointments/1/reschedule?patient_id=1" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "new_session_id": 2
+  }'
+```
+
+##### 病人報到
+```bash
+curl -X POST "http://localhost:8000/patient/appointments/1/checkin?patient_id=1"
+```
+
+##### 查詢完整歷史記錄
+```bash
+curl "http://localhost:8000/patient/history?patient_id=1"
+```
+
 ## 📚 API 端點列表
+
+### Provider API（醫師端）
 
 所有 Provider API 都掛載在 `/provider` 前綴下。
 
-### 帳號管理
+#### 帳號管理
 
 | 方法 | 路徑 | 說明 |
 |------|------|------|
@@ -294,7 +389,7 @@ curl -X PUT "http://localhost:8000/provider/1/encounters/1/prescription" \
 | POST | `/provider/login` | 醫師登入 |
 | GET | `/provider/{provider_id}/profile` | 取得醫師資料 |
 
-### 門診時段管理
+#### 門診時段管理
 
 | 方法 | 路徑 | 說明 |
 |------|------|------|
@@ -303,20 +398,20 @@ curl -X PUT "http://localhost:8000/provider/1/encounters/1/prescription" \
 | PUT | `/provider/{provider_id}/sessions/{session_id}` | 更新診次 |
 | POST | `/provider/{provider_id}/sessions/{session_id}/cancel` | 取消診次 |
 
-### 預約管理
+#### 預約管理
 
 | 方法 | 路徑 | 說明 |
 |------|------|------|
 | GET | `/provider/{provider_id}/sessions/{session_id}/appointments` | 列出預約 |
 
-### 就診記錄
+#### 就診記錄
 
 | 方法 | 路徑 | 說明 |
 |------|------|------|
 | GET | `/provider/{provider_id}/appointments/{appt_id}/encounter` | 取得就診記錄 |
 | PUT | `/provider/{provider_id}/appointments/{appt_id}/encounter` | 建立/更新就診記錄 |
 
-### 診斷管理
+#### 診斷管理
 
 | 方法 | 路徑 | 說明 |
 |------|------|------|
@@ -324,18 +419,71 @@ curl -X PUT "http://localhost:8000/provider/1/encounters/1/prescription" \
 | PUT | `/provider/{provider_id}/encounters/{enct_id}/diagnoses/{code_icd}` | 建立/更新診斷 |
 | POST | `/provider/{provider_id}/encounters/{enct_id}/primary-diagnosis` | 設定主要診斷 |
 
-### 處方管理
+#### 處方管理
 
 | 方法 | 路徑 | 說明 |
 |------|------|------|
 | GET | `/provider/{provider_id}/encounters/{enct_id}/prescription` | 取得處方 |
 | PUT | `/provider/{provider_id}/encounters/{enct_id}/prescription` | 建立/更新處方 |
 
+### Patient API（病人端）
+
+所有 Patient API 都掛載在 `/patient` 前綴下。
+
+#### 門診時段查詢
+
+| 方法 | 路徑 | 說明 |
+|------|------|------|
+| GET | `/patient/sessions` | 查詢可預約的門診時段（支援科別、醫師、日期篩選） |
+
+#### 掛號管理
+
+| 方法 | 路徑 | 說明 |
+|------|------|------|
+| GET | `/patient/appointments` | 列出病人的所有掛號 |
+| POST | `/patient/appointments` | 建立掛號（需提供 `patient_id` 和 `session_id`） |
+| DELETE | `/patient/appointments/{id}` | 取消掛號（需提供 `patient_id`） |
+| PATCH | `/patient/appointments/{id}/reschedule` | 修改掛號（改期，需提供 `patient_id` 和 `new_session_id`） |
+| POST | `/patient/appointments/{id}/checkin` | 病人報到（需提供 `patient_id`） |
+
+#### 歷史記錄查詢
+
+| 方法 | 路徑 | 說明 |
+|------|------|------|
+| GET | `/patient/history` | 取得病人的完整歷史記錄（需提供 `patient_id`） |
+| | | 包含：就診記錄、處方箋、檢驗結果、繳費記錄 |
+
 ## 🔐 安全說明
 
 - 密碼使用 SHA-256 進行雜湊處理
 - 所有 API 都需要正確的參數驗證
+- 掛號建立使用 transaction + FOR UPDATE 避免併行衝突
+- 掛號改期使用固定鎖序避免死鎖
 - 建議在生產環境中使用更強的安全措施（如 JWT token、HTTPS 等）
+
+## 🏗 架構設計
+
+本專案採用分層架構設計：
+
+1. **Repository Layer（資料庫操作層）**
+   - 負責所有資料庫操作
+   - 使用 PostgreSQL 進行資料持久化
+   - 實作 Repository Pattern，提供統一的資料存取介面
+
+2. **Service Layer（業務邏輯層）**
+   - 封裝業務邏輯
+   - 處理資料驗證和錯誤處理
+   - 協調多個 Repository 的操作
+
+3. **Router Layer（API 路由層）**
+   - 定義 RESTful API 端點
+   - 處理 HTTP 請求和回應
+   - 使用 Pydantic 進行參數驗證
+
+4. **Analytics Layer（資料分析層）**
+   - 使用 DuckDB 進行高效能資料分析
+   - 透過 postgres_scanner 直接查詢 PostgreSQL
+   - 提供統計和分析功能
 
 ## 📝 注意事項
 
@@ -373,10 +521,32 @@ curl -X PUT "http://localhost:8000/provider/1/encounters/1/prescription" \
 
 本專案為學術專題專案。
 
+## 📊 資料分析功能
+
+系統整合 DuckDB 進行高效能資料分析，提供以下功能：
+
+### 病人統計分析
+
+使用 `analytics/patient_analysis.py` 模組可以取得病人的統計資料：
+
+- **年度就診次數**：按年份統計病人的就診次數
+- **各科別就診分布**：統計病人在各科別的就診次數
+- **常見診斷 top 10**：統計病人最常見的診斷（前 10 名）
+
+使用範例：
+```python
+from app.analytics.patient_analysis import get_patient_statistics
+
+# 取得病人 ID 為 1 的統計資料
+stats = get_patient_statistics(patient_id=1)
+print(stats)
+```
+
 ## 👥 貢獻者
 
 - Provider 端 API 實作：Hannah
-- Patient 端 API：待組員實作
+- Patient 端 API 實作：已完成
+- 資料分析功能：已完成
 
 ---
 

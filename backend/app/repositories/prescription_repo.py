@@ -1,0 +1,192 @@
+# repositories/prescription_repo.py
+from psycopg2.extras import RealDictCursor
+from ..pg_base import get_pg_conn
+
+
+class PrescriptionRepository:
+    """處理處方與用藥（PRESCRIPTION + INCLUDE）相關的資料庫操作"""
+
+    @staticmethod
+    def get_prescription_for_encounter(enct_id):
+        """
+        查詢某次就診的處方箋（若有的話，包含用藥明細）。
+        """
+        conn = get_pg_conn()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT rx_id, enct_id, status
+                    FROM PRESCRIPTION
+                    WHERE enct_id = %s;
+                    """,
+                    (enct_id,),
+                )
+                header = cur.fetchone()
+                if header is None:
+                    return None
+
+                rx_id = header["rx_id"]
+
+                cur.execute(
+                    """
+                    SELECT
+                        inc.rx_id,
+                        inc.med_id,
+                        m.name AS med_name,
+                        m.spec,
+                        m.unit,
+                        inc.dosage,
+                        inc.frequency,
+                        inc.days,
+                        inc.quantity
+                    FROM INCLUDE inc
+                    JOIN MEDICATION m ON inc.med_id = m.med_id
+                    WHERE inc.rx_id = %s
+                    ORDER BY m.name;
+                    """,
+                    (rx_id,),
+                )
+                items = cur.fetchall()
+                header["items"] = items
+                return header
+        finally:
+            conn.close()
+
+    @staticmethod
+    def upsert_prescription_for_encounter(enct_id, status):
+        """
+        建立或更新某次就診的處方箋（只管 PRESCRIPTION；INCLUDE 由 replace_prescription_items 負責）。
+        """
+        conn = get_pg_conn()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT rx_id FROM PRESCRIPTION WHERE enct_id = %s;",
+                    (enct_id,),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    cur.execute(
+                        """
+                        INSERT INTO PRESCRIPTION (enct_id, status)
+                        VALUES (%s, %s)
+                        RETURNING rx_id, enct_id, status;
+                        """,
+                        (enct_id, status),
+                    )
+                else:
+                    rx_id = row["rx_id"]
+                    cur.execute(
+                        """
+                        UPDATE PRESCRIPTION
+                        SET status = %s
+                        WHERE rx_id = %s
+                        RETURNING rx_id, enct_id, status;
+                        """,
+                        (status, rx_id),
+                    )
+
+                result = cur.fetchone()
+                conn.commit()
+                return result
+        finally:
+            conn.close()
+
+    @staticmethod
+    def replace_prescription_items(rx_id, items):
+        """
+        重建某張處方箋的所有用藥內容：
+        - 先 DELETE 原本的 INCLUDE
+        - 再根據 items INSERT 新的
+        items 每個元素預期包含：
+            med_id, dosage, frequency, days, quantity
+        """
+        conn = get_pg_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM INCLUDE WHERE rx_id = %s;", (rx_id,))
+
+                for item in items:
+                    cur.execute(
+                        """
+                        INSERT INTO INCLUDE (
+                            rx_id, med_id, dosage, frequency, days, quantity
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s);
+                        """,
+                        (
+                            rx_id,
+                            item["med_id"],
+                            item.get("dosage"),
+                            item.get("frequency"),
+                            item["days"],
+                            item["quantity"],
+                        ),
+                    )
+
+                conn.commit()
+        finally:
+            conn.close()
+
+    @staticmethod
+    def list_prescriptions_for_patient(patient_id):
+        """
+        查詢某位病人的所有處方箋。
+        包含：處方 ID、就診 ID、用藥明細等。
+        """
+        conn = get_pg_conn()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        rx.rx_id,
+                        rx.enct_id,
+                        rx.status AS prescription_status,
+                        e.encounter_at,
+                        e.provider_id,
+                        u_provider.name AS provider_name,
+                        pr.dept_id,
+                        d.name AS department_name
+                    FROM PRESCRIPTION rx
+                    JOIN ENCOUNTER e ON rx.enct_id = e.enct_id
+                    JOIN APPOINTMENT a ON e.appt_id = a.appt_id
+                    JOIN PROVIDER pr ON e.provider_id = pr.user_id
+                    JOIN "USER" u_provider ON pr.user_id = u_provider.user_id
+                    LEFT JOIN DEPARTMENT d ON pr.dept_id = d.dept_id
+                    WHERE a.patient_id = %s
+                    ORDER BY e.encounter_at DESC;
+                    """,
+                    (patient_id,),
+                )
+                prescriptions = cur.fetchall()
+
+                # 為每個處方添加用藥明細
+                for rx in prescriptions:
+                    rx_id = rx["rx_id"]
+                    cur.execute(
+                        """
+                        SELECT
+                            inc.rx_id,
+                            inc.med_id,
+                            m.name AS med_name,
+                            m.spec,
+                            m.unit,
+                            inc.dosage,
+                            inc.frequency,
+                            inc.days,
+                            inc.quantity
+                        FROM INCLUDE inc
+                        JOIN MEDICATION m ON inc.med_id = m.med_id
+                        WHERE inc.rx_id = %s
+                        ORDER BY m.name;
+                        """,
+                        (rx_id,),
+                    )
+                    rx["items"] = cur.fetchall()
+
+                return prescriptions
+        finally:
+            conn.close()
+
