@@ -64,12 +64,17 @@ dbms-final/
 
 ## ✨ 已實作功能
 
-### 1. 帳號管理
+### 1. 病人端（Patient）帳號管理
+- ✅ 病人註冊 (`POST /patient/register`)
+- ✅ 病人登入 (`POST /patient/login`)
+- ✅ 取得病人資料 (`GET /patient/{patient_id}/profile`)
+
+### 2. 醫師端（Provider）帳號管理
 - ✅ 醫師註冊 (`POST /provider/register`)
 - ✅ 醫師登入 (`POST /provider/login`)
 - ✅ 取得醫師資料 (`GET /provider/{provider_id}/profile`)
 
-### 2. 門診時段管理
+### 3. 門診時段管理
 - ✅ 列出診次 (`GET /provider/{provider_id}/sessions`)
   - 支援日期範圍篩選
   - 支援狀態篩選
@@ -77,26 +82,83 @@ dbms-final/
 - ✅ 更新診次 (`PUT /provider/{provider_id}/sessions/{session_id}`)
 - ✅ 取消診次 (`POST /provider/{provider_id}/sessions/{session_id}/cancel`)
 
-### 3. 預約管理
+### 4. 預約管理（醫師端）
 - ✅ 列出預約 (`GET /provider/{provider_id}/sessions/{session_id}/appointments`)
 
-### 4. 就診記錄（Encounter）
+### 5. 預約管理（病人端）
+- ✅ 查詢可預約門診時段 (`GET /patient/sessions`)
+  - 支援科別、醫師、日期篩選
+- ✅ 列出所有掛號 (`GET /patient/appointments`)
+- ✅ 建立掛號 (`POST /patient/appointments`)
+  - ✅ 檢查是否已在該 session 重複掛號
+  - ✅ 檢查 session 容量是否已滿
+  - ✅ 使用 transaction + FOR UPDATE 避免併行衝突
+  - ✅ 自動計算 slot_seq
+  - ✅ 寫入掛號狀態歷史
+- ✅ 取消掛號 (`DELETE /patient/appointments/{id}`)
+  - ✅ 驗證 patient_id 是否匹配
+  - ✅ 更新狀態為「已取消」
+  - ✅ 寫入狀態歷史
+- ✅ 修改掛號（改期）(`PATCH /patient/appointments/{id}/reschedule`)
+  - ✅ 使用固定鎖序避免死鎖
+  - ✅ 更新 session_id 和 slot_seq
+  - ✅ 寫入狀態歷史
+- ✅ 病人報到 (`POST /patient/appointments/{id}/checkin`)
+  - ✅ 驗證 patient_id 是否匹配
+  - ✅ 更新狀態為「已報到」
+  - ✅ 寫入狀態歷史
+
+### 6. 就診記錄（Encounter）
 - ✅ 取得就診記錄 (`GET /provider/{provider_id}/appointments/{appt_id}/encounter`)
 - ✅ 建立/更新就診記錄 (`PUT /provider/{provider_id}/appointments/{appt_id}/encounter`)
   - 包含主訴、主觀描述、評估、計畫等欄位
 
-### 5. 診斷管理
+### 6. 就診記錄（Encounter）
+- ✅ 取得就診記錄 (`GET /provider/{provider_id}/appointments/{appt_id}/encounter`)
+- ✅ 建立/更新就診記錄 (`PUT /provider/{provider_id}/appointments/{appt_id}/encounter`)
+  - 包含主訴、主觀描述、評估、計畫等欄位
+  - ✅ 支援草稿與定稿狀態
+  - ✅ 已定稿的就診記錄不可再編輯
+
+### 7. 診斷管理
 - ✅ 取得診斷列表 (`GET /provider/{provider_id}/encounters/{enct_id}/diagnoses`)
 - ✅ 建立/更新診斷 (`PUT /provider/{provider_id}/encounters/{enct_id}/diagnoses/{code_icd}`)
 - ✅ 設定主要診斷 (`POST /provider/{provider_id}/encounters/{enct_id}/primary-diagnosis`)
+  - ✅ 使用 transaction 確保原子性
+  - ✅ 驗證診斷是否存在
 
-### 6. 處方管理
+### 8. 處方管理
 - ✅ 取得處方 (`GET /provider/{provider_id}/encounters/{enct_id}/prescription`)
 - ✅ 建立/更新處方 (`PUT /provider/{provider_id}/encounters/{enct_id}/prescription`)
   - 支援多個藥品項目
   - 每個項目包含劑量、頻率、天數、數量等資訊
+  - ✅ 使用 transaction 確保原子性
 
-### 7. 資料分析
+### 9. 檢驗報告管理
+- ✅ 取得檢驗結果列表 (`GET /provider/{provider_id}/encounters/{enct_id}/lab-results`)
+- ✅ 新增檢驗結果 (`POST /provider/{provider_id}/encounters/{enct_id}/lab-results`)
+  - 包含 LOINC 代碼、項目名稱、數值、單位、參考範圍、異常標記等
+
+### 10. 繳費管理
+- ✅ 取得繳費資訊 (`GET /provider/{provider_id}/encounters/{enct_id}/payment`)
+- ✅ 建立/更新繳費資料 (`POST /provider/{provider_id}/encounters/{enct_id}/payment`)
+  - 自動產生費用資料
+  - 支援多種付款方式
+
+### 11. 病人歷史記錄查詢
+- ✅ 查詢完整歷史記錄 (`GET /patient/history`)
+  - 所有就診記錄
+  - 所有處方箋
+  - 所有檢驗結果
+  - 所有繳費記錄
+- ✅ 列出繳費記錄 (`GET /patient/payments`)
+
+### 12. 線上繳費
+- ✅ 線上繳費 (`POST /patient/payments/{payment_id}/pay`)
+  - ✅ 驗證 payment 是否屬於該病人
+  - ✅ 更新付款方式與發票號碼
+
+### 13. 資料分析
 - ✅ DuckDB 整合（用於資料分析查詢）
 - ✅ 每日看診統計功能
 - ✅ 病人統計分析（年度就診次數、科別分布、常見診斷）
@@ -550,5 +612,4 @@ print(stats)
 
 ---
 
-**最後更新**: 2024
-
+**最後更新**：2025-11-25

@@ -13,6 +13,8 @@ class AppointmentService:
     def create_appointment(self, patient_id: int, session_id: int):
         """
         建立掛號：
+        - 檢查是否已在該 session 重複掛號
+        - 檢查 session 容量是否已滿
         - 使用 transaction + FOR UPDATE 避免併行衝突
         - slot_seq = 已掛號人數 + 1
         - 寫入 APPOINTMENT_STATUS_HISTORY
@@ -25,6 +27,19 @@ class AppointmentService:
         except Exception as e:
             if isinstance(e, HTTPException):
                 raise e
+            error_msg = str(e)
+            if "already has an appointment" in error_msg:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Patient already has an appointment for this session"
+                )
+            elif "Session is full" in error_msg:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Session is full, no more appointments available"
+                )
+            elif "Session not found" in error_msg:
+                raise HTTPException(status_code=404, detail="Session not found")
             raise HTTPException(status_code=500, detail=f"Error creating appointment: {str(e)}") from e
 
     def cancel_appointment(self, appt_id: int, patient_id: int):

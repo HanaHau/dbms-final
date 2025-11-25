@@ -1,4 +1,5 @@
 # repositories/__init__.py
+from .patient_repo import PatientRepository
 from .provider_repo import ProviderRepository
 from .session_repo import SessionRepository
 from .appointment_repo import AppointmentRepository
@@ -9,6 +10,7 @@ from .lab_result_repo import LabResultRepository
 from .payment_repo import PaymentRepository
 
 __all__ = [
+    "PatientRepository",
     "ProviderRepository",
     "SessionRepository",
     "AppointmentRepository",

@@ -68,6 +68,23 @@ class PrescriptionUpsert(BaseModel):
     items: List[PrescriptionItem]
 
 
+class LabResultCreate(BaseModel):
+    loinc_code: Optional[str] = None
+    item_name: str
+    value: Optional[str] = None
+    unit: Optional[str] = None
+    ref_low: Optional[str] = None
+    ref_high: Optional[str] = None
+    abnormal_flag: Optional[str] = None  # 'H' (高), 'L' (低), 'N' (正常)
+    reported_at: Optional[str] = None  # ISO format or None for NOW()
+
+
+class PaymentCreate(BaseModel):
+    amount: float
+    method: str  # 'cash' (現金), 'card' (信用卡), 'insurer' (保險)
+    invoice_no: Optional[str] = None
+
+
 # ---------------------------
 # Provider APIs
 # ---------------------------
@@ -215,5 +232,45 @@ def api_upsert_rx(provider_id: int, enct_id: int, body: PrescriptionUpsert):
         enct_id=enct_id,
         status=body.status,
         items=body.items,
+    )
+
+
+@router.get("/{provider_id}/encounters/{enct_id}/lab-results")
+def api_get_lab_results(provider_id: int, enct_id: int):
+    """取得某次就診的所有檢驗結果"""
+    return service.list_lab_results(enct_id)
+
+
+@router.post("/{provider_id}/encounters/{enct_id}/lab-results")
+def api_add_lab_result(provider_id: int, enct_id: int, body: LabResultCreate):
+    """新增檢驗結果"""
+    return service.add_lab_result(
+        provider_id=provider_id,
+        enct_id=enct_id,
+        loinc_code=body.loinc_code,
+        item_name=body.item_name,
+        value=body.value,
+        unit=body.unit,
+        ref_low=body.ref_low,
+        ref_high=body.ref_high,
+        abnormal_flag=body.abnormal_flag,
+        reported_at=body.reported_at,
+    )
+
+
+@router.get("/{provider_id}/encounters/{enct_id}/payment")
+def api_get_payment(provider_id: int, enct_id: int):
+    """取得某次就診的繳費資訊"""
+    return service.get_payment(enct_id)
+
+
+@router.post("/{provider_id}/encounters/{enct_id}/payment")
+def api_create_payment(provider_id: int, enct_id: int, body: PaymentCreate):
+    """建立或更新繳費資料"""
+    return service.upsert_payment(
+        enct_id=enct_id,
+        amount=body.amount,
+        method=body.method,
+        invoice_no=body.invoice_no,
     )
 

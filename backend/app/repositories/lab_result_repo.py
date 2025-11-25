@@ -93,6 +93,7 @@ class LabResultRepository:
     ):
         """
         新增一筆檢驗結果。
+        abnormal_flag: 'H' (高), 'L' (低), 'N' (正常), None
         """
         conn = get_pg_conn()
         try:

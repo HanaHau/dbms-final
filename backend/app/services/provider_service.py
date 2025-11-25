@@ -11,6 +11,8 @@ from ..repositories import (
     EncounterRepository,
     DiagnosisRepository,
     PrescriptionRepository,
+    LabResultRepository,
+    PaymentRepository,
 )
 
 
@@ -24,6 +26,8 @@ class ProviderService:
         self.encounter_repo = EncounterRepository()
         self.diagnosis_repo = DiagnosisRepository()
         self.prescription_repo = PrescriptionRepository()
+        self.lab_result_repo = LabResultRepository()
+        self.payment_repo = PaymentRepository()
 
     def register_provider(self, name: str, password: str, license_no: str, dept_id: int):
         """
@@ -176,7 +180,18 @@ class ProviderService:
         assessment: Optional[str] = None,
         plan: Optional[str] = None,
     ):
-        """新增或更新就診紀錄"""
+        """
+        新增或更新就診紀錄
+        注意：status = 1 為草稿，status = 2 為已定稿（不可再編輯）
+        """
+        # 檢查是否已定稿
+        existing = self.encounter_repo.get_encounter_by_appt(provider_id, appt_id)
+        if existing and existing.get("status") == 2 and status != 2:
+            raise HTTPException(
+                status_code=403,
+                detail="Cannot modify finalized encounter"
+            )
+
         return self.encounter_repo.upsert_encounter(
             provider_user_id=provider_id,
             appt_id=appt_id,
@@ -198,7 +213,18 @@ class ProviderService:
 
     def set_primary_diagnosis(self, enct_id: int, code_icd: str):
         """設定主要診斷"""
-        self.diagnosis_repo.set_primary_diagnosis(enct_id, code_icd)
+        try:
+            self.diagnosis_repo.set_primary_diagnosis(enct_id, code_icd)
+        except Exception as e:
+            if "Diagnosis not found" in str(e):
+                raise HTTPException(
+                    status_code=404,
+                    detail="Diagnosis not found for this encounter"
+                )
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error setting primary diagnosis: {str(e)}"
+            ) from e
         return self.diagnosis_repo.list_diagnoses_for_encounter(enct_id)
 
     def get_prescription(self, enct_id: int):
@@ -219,4 +245,75 @@ class ProviderService:
     def list_encounters_for_patient_by_provider(self, provider_id: int, patient_id: int):
         """醫師查詢某位病患在自己這裡的所有就診紀錄"""
         return self.encounter_repo.list_encounters_for_patient_by_provider(provider_id, patient_id)
+
+    def list_lab_results(self, enct_id: int):
+        """列出某次就診的所有檢驗結果"""
+        return self.lab_result_repo.list_lab_results_for_encounter(enct_id)
+
+    def add_lab_result(
+        self,
+        provider_id: int,
+        enct_id: int,
+        loinc_code: Optional[str],
+        item_name: str,
+        value: Optional[str],
+        unit: Optional[str],
+        ref_low: Optional[str],
+        ref_high: Optional[str],
+        abnormal_flag: Optional[str],
+        reported_at: Optional[str],
+    ):
+        """
+        新增檢驗結果：
+        - abnormal_flag: 'H' (高), 'L' (低), 'N' (正常), None
+        """
+        # 驗證 abnormal_flag 值
+        if abnormal_flag is not None and abnormal_flag not in ('H', 'L', 'N'):
+            raise HTTPException(
+                status_code=400,
+                detail="abnormal_flag must be 'H', 'L', 'N', or None"
+            )
+
+        return self.lab_result_repo.add_lab_result(
+            enct_id=enct_id,
+            loinc_code=loinc_code,
+            item_name=item_name,
+            value=value,
+            unit=unit,
+            ref_low=ref_low,
+            ref_high=ref_high,
+            abnormal_flag=abnormal_flag,
+            reported_at=reported_at,
+        )
+
+    def get_payment(self, enct_id: int):
+        """取得某次就診的繳費資訊"""
+        payment = self.payment_repo.get_payment_for_encounter(enct_id)
+        if payment is None:
+            raise HTTPException(status_code=404, detail="Payment not found")
+        return payment
+
+    def upsert_payment(self, enct_id: int, amount: float, method: str, invoice_no: Optional[str]):
+        """
+        建立或更新繳費資料：
+        - 系統根據醫療服務與藥品清單自動計算費用
+        - 或由醫師/櫃台人員手動輸入
+        - method: 'cash' (現金), 'card' (信用卡), 'insurer' (保險)
+        """
+        if amount <= 0:
+            raise HTTPException(status_code=400, detail="Amount must be positive")
+
+        # 驗證 method 值
+        if method not in ('cash', 'card', 'insurer'):
+            raise HTTPException(
+                status_code=400,
+                detail="method must be 'cash', 'card', or 'insurer'"
+            )
+
+        return self.payment_repo.upsert_payment_for_encounter(
+            enct_id=enct_id,
+            amount=amount,
+            method=method,
+            invoice_no=invoice_no,
+        )
 

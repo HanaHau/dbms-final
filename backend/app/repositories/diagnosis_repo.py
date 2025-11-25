@@ -57,14 +57,31 @@ class DiagnosisRepository:
     def set_primary_diagnosis(enct_id, code_icd):
         """
         將某一個診斷標為主要診斷，同時把同一 enct_id 其他診斷 is_primary 設為 FALSE。
+        使用 transaction 確保原子性。
         """
         conn = get_pg_conn()
         try:
             with conn.cursor() as cur:
+                # 先確認該診斷是否存在
+                cur.execute(
+                    """
+                    SELECT 1
+                    FROM DIAGNOSIS
+                    WHERE enct_id = %s AND code_icd = %s;
+                    """,
+                    (enct_id, code_icd),
+                )
+                if cur.fetchone() is None:
+                    conn.rollback()
+                    raise Exception("Diagnosis not found")
+
+                # 將該 encounter 的所有診斷設為非主要診斷
                 cur.execute(
                     "UPDATE DIAGNOSIS SET is_primary = FALSE WHERE enct_id = %s;",
                     (enct_id,),
                 )
+                
+                # 將指定診斷設為主要診斷
                 cur.execute(
                     """
                     UPDATE DIAGNOSIS
@@ -75,6 +92,9 @@ class DiagnosisRepository:
                     (enct_id, code_icd),
                 )
                 conn.commit()
+        except Exception as e:
+            conn.rollback()
+            raise e
         finally:
             conn.close()
 

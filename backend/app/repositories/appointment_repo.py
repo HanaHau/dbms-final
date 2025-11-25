@@ -180,6 +180,8 @@ class AppointmentRepository:
     def create_appointment(patient_id, session_id):
         """
         建立掛號：
+        - 檢查是否已在該 session 重複掛號
+        - 檢查 session 容量是否已滿
         - 使用 transaction + FOR UPDATE 避免併行衝突
         - slot_seq = 已掛號人數 + 1
         - 寫入 APPOINTMENT_STATUS_HISTORY（初始狀態）
@@ -187,6 +189,19 @@ class AppointmentRepository:
         conn = get_pg_conn()
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # 檢查是否已在該 session 重複掛號
+                cur.execute(
+                    """
+                    SELECT appt_id
+                    FROM APPOINTMENT
+                    WHERE patient_id = %s AND session_id = %s;
+                    """,
+                    (patient_id, session_id),
+                )
+                if cur.fetchone() is not None:
+                    conn.rollback()
+                    raise Exception("Patient already has an appointment for this session")
+
                 # 使用 FOR UPDATE 鎖定 session 相關的 appointment 記錄，避免併行衝突
                 # 在 transaction 中執行，確保原子性
                 cur.execute(
@@ -200,6 +215,26 @@ class AppointmentRepository:
                 )
                 row = cur.fetchone()
                 booked_count = row["booked_count"] if row else 0
+
+                # 檢查 session 容量
+                cur.execute(
+                    """
+                    SELECT capacity
+                    FROM CLINIC_SESSION
+                    WHERE session_id = %s;
+                    """,
+                    (session_id,),
+                )
+                session_row = cur.fetchone()
+                if session_row is None:
+                    conn.rollback()
+                    raise Exception("Session not found")
+
+                capacity = session_row["capacity"]
+                if booked_count >= capacity:
+                    conn.rollback()
+                    raise Exception("Session is full")
+
                 slot_seq = booked_count + 1
 
                 # 插入 APPOINTMENT - 使用自動生成的 appt_id
