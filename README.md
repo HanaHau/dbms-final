@@ -112,11 +112,6 @@ dbms-final/
 - ✅ 取得就診記錄 (`GET /provider/{provider_id}/appointments/{appt_id}/encounter`)
 - ✅ 建立/更新就診記錄 (`PUT /provider/{provider_id}/appointments/{appt_id}/encounter`)
   - 包含主訴、主觀描述、評估、計畫等欄位
-
-### 6. 就診記錄（Encounter）
-- ✅ 取得就診記錄 (`GET /provider/{provider_id}/appointments/{appt_id}/encounter`)
-- ✅ 建立/更新就診記錄 (`PUT /provider/{provider_id}/appointments/{appt_id}/encounter`)
-  - 包含主訴、主觀描述、評估、計畫等欄位
   - ✅ 支援草稿與定稿狀態
   - ✅ 已定稿的就診記錄不可再編輯
 
@@ -163,7 +158,7 @@ dbms-final/
 - ✅ 每日看診統計功能
 - ✅ 病人統計分析（年度就診次數、科別分布、常見診斷）
 
-### 8. 病人端功能（Patient）
+### 14. 病人端功能（Patient）
 - ✅ 查詢可預約門診時段 (`GET /patient/sessions`)
 - ✅ 列出所有掛號 (`GET /patient/appointments`)
 - ✅ 建立掛號 (`POST /patient/appointments`)

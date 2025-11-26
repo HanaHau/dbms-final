@@ -184,9 +184,9 @@ class ProviderService:
         新增或更新就診紀錄
         注意：status = 1 為草稿，status = 2 為已定稿（不可再編輯）
         """
-        # 檢查是否已定稿
+        # 檢查是否已定稿 - 如果已定稿，完全禁止編輯（包括內容和狀態）
         existing = self.encounter_repo.get_encounter_by_appt(provider_id, appt_id)
-        if existing and existing.get("status") == 2 and status != 2:
+        if existing and existing.get("status") == 2:
             raise HTTPException(
                 status_code=403,
                 detail="Cannot modify finalized encounter"
