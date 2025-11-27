@@ -175,6 +175,24 @@ def api_cancel_session(provider_id: int, session_id: int):
     return service.cancel_session(provider_id, session_id)
 
 
+@router.post("/{provider_id}/sessions/update-expired")
+def api_update_expired_sessions(provider_id: int):
+    """
+    更新該醫師所有已過期的門診時段狀態為停診（status = 0）。
+    這個端點會立即更新資料庫，不需要等待查詢時才更新。
+    """
+    return service.update_expired_sessions(provider_id)
+
+
+@router.post("/sessions/update-expired-all")
+def api_update_expired_sessions_all():
+    """
+    更新所有醫師已過期的門診時段狀態為停診（status = 0）。
+    這個端點會立即更新資料庫，不需要等待查詢時才更新。
+    """
+    return service.update_expired_sessions()
+
+
 @router.get("/{provider_id}/sessions/{session_id}/appointments")
 def api_list_appointments(provider_id: int, session_id: int):
     """列出某個門診時段的掛號清單"""
@@ -185,6 +203,12 @@ def api_list_appointments(provider_id: int, session_id: int):
 def api_get_encounter(provider_id: int, appt_id: int):
     """取得就診紀錄"""
     return service.get_encounter(provider_id, appt_id)
+
+
+@router.get("/{provider_id}/appointments/{appt_id}/patient-id")
+def api_get_appointment_patient_id(provider_id: int, appt_id: int):
+    """取得掛號對應的病人 ID"""
+    return service.get_appointment_patient_id(appt_id)
 
 
 @router.put("/{provider_id}/appointments/{appt_id}/encounter")
@@ -219,10 +243,20 @@ def api_set_primary_dx(provider_id: int, enct_id: int, body: PrimaryDiagnosisBod
     return service.set_primary_diagnosis(enct_id, body.code_icd)
 
 
+@router.get("/diseases")
+def api_search_diseases(query: Optional[str] = Query(None), limit: int = Query(50, le=200)):
+    """搜尋疾病（ICD 代碼和描述）"""
+    return service.search_diseases(query, limit)
+
+
 @router.get("/{provider_id}/encounters/{enct_id}/prescription")
 def api_get_rx(provider_id: int, enct_id: int):
-    """取得處方箋"""
-    return service.get_prescription(enct_id)
+    """取得處方箋，如果不存在則返回 404"""
+    result = service.get_prescription(enct_id)
+    if result is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Prescription not found")
+    return result
 
 
 @router.put("/{provider_id}/encounters/{enct_id}/prescription")
@@ -273,4 +307,23 @@ def api_create_payment(provider_id: int, enct_id: int, body: PaymentCreate):
         method=body.method,
         invoice_no=body.invoice_no,
     )
+
+
+@router.get("/{provider_id}/patients/{patient_id}/history")
+def api_get_patient_history(provider_id: int, patient_id: int):
+    """
+    醫師查詢某位病患的所有就診記錄、診斷與檢驗報告（不限醫師、科別）。
+    回傳包含：
+    - encounters: 所有就診記錄
+    - diagnoses: 所有診斷
+    - lab_results: 所有檢驗結果
+    """
+    encounters = service.list_all_encounters_for_patient(patient_id)
+    diagnoses = service.list_all_diagnoses_for_patient(patient_id)
+    lab_results = service.list_all_lab_results_for_patient(patient_id)
+    return {
+        "encounters": encounters,
+        "diagnoses": diagnoses,
+        "lab_results": lab_results,
+    }
 

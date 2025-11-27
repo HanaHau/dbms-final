@@ -11,10 +11,25 @@ class SessionRepository:
         """
         列出某位醫師的門診時段，可用日期區間與門診狀態過濾。
         回傳每個 session 目前已掛號人數 booked_count。
+        自動將已過 end_time 的 session status 更新為 0（停診）。
         """
         conn = get_pg_conn()
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # 先自動更新已過期的 session status
+                cur.execute(
+                    """
+                    UPDATE CLINIC_SESSION
+                    SET status = 0
+                    WHERE provider_id = %s
+                      AND status = 1
+                      AND (date < CURRENT_DATE 
+                           OR (date = CURRENT_DATE AND end_time < CURRENT_TIME));
+                    """,
+                    (provider_user_id,)
+                )
+                conn.commit()
+
                 params = [provider_user_id]
                 conditions = ["cs.provider_id = %s"]
 
@@ -138,10 +153,25 @@ class SessionRepository:
     def get_session_by_id(session_id):
         """
         根據 session_id 取得門診時段資訊，包含 provider 和 department 資訊。
+        自動將已過 end_time 的 session status 更新為 0（停診）。
         """
         conn = get_pg_conn()
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # 先自動更新已過期的 session status
+                cur.execute(
+                    """
+                    UPDATE CLINIC_SESSION
+                    SET status = 0
+                    WHERE session_id = %s
+                      AND status = 1
+                      AND (date < CURRENT_DATE 
+                           OR (date = CURRENT_DATE AND end_time < CURRENT_TIME));
+                    """,
+                    (session_id,)
+                )
+                conn.commit()
+
                 cur.execute(
                     """
                     SELECT
@@ -236,10 +266,24 @@ class SessionRepository:
         """
         搜尋門診時段，可根據科別、醫師、日期過濾。
         回傳每個 session 的資訊，包含 provider 和 department 資訊，以及已預約人數。
+        自動將已過 end_time 的 session status 更新為 0（停診）。
         """
         conn = get_pg_conn()
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # 先自動更新已過期的 session status
+                from datetime import datetime, date as date_type
+                cur.execute(
+                    """
+                    UPDATE CLINIC_SESSION
+                    SET status = 0
+                    WHERE status = 1
+                      AND (date < CURRENT_DATE 
+                           OR (date = CURRENT_DATE AND end_time < CURRENT_TIME));
+                    """
+                )
+                conn.commit()
+
                 conditions = []
                 params = []
 
@@ -296,6 +340,44 @@ class SessionRepository:
                     params,
                 )
                 return cur.fetchall()
+        finally:
+            conn.close()
+
+    @staticmethod
+    def update_expired_sessions(provider_id=None):
+        """
+        更新所有已過期的門診時段狀態為停診（status = 0）。
+        如果提供 provider_id，只更新該醫師的門診時段。
+        回傳更新的數量。
+        """
+        conn = get_pg_conn()
+        try:
+            with conn.cursor() as cur:
+                if provider_id is not None:
+                    cur.execute(
+                        """
+                        UPDATE CLINIC_SESSION
+                        SET status = 0
+                        WHERE provider_id = %s
+                          AND status = 1
+                          AND (date < CURRENT_DATE 
+                               OR (date = CURRENT_DATE AND end_time < CURRENT_TIME));
+                        """,
+                        (provider_id,)
+                    )
+                else:
+                    cur.execute(
+                        """
+                        UPDATE CLINIC_SESSION
+                        SET status = 0
+                        WHERE status = 1
+                          AND (date < CURRENT_DATE 
+                               OR (date = CURRENT_DATE AND end_time < CURRENT_TIME));
+                        """
+                    )
+                updated_count = cur.rowcount
+                conn.commit()
+                return updated_count
         finally:
             conn.close()
 

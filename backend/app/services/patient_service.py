@@ -3,6 +3,7 @@ import hashlib
 from datetime import date
 from typing import Optional
 from fastapi import HTTPException
+import psycopg2
 
 from ..repositories import PatientRepository
 
@@ -35,12 +36,36 @@ class PatientService:
                 phone=phone,
             )
             return patient
+        except psycopg2.IntegrityError as e:
+            # PostgreSQL 完整性約束錯誤
+            error_code = e.pgcode
+            error_msg = str(e).lower()
+            pgerror = e.pgerror.lower() if e.pgerror else ""
+            
+            # 23505 = unique_violation
+            if error_code == '23505':
+                # 檢查是哪個唯一約束違反
+                if 'national_id' in error_msg or 'national_id' in pgerror or 'patient_national_id_key' in pgerror:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"身分證字號 '{national_id}' 已存在，請使用不同的身分證字號。"
+                    ) from e
+                else:
+                    # 顯示完整的錯誤訊息以便調試
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"資料唯一性約束違反：{e.pgerror or str(e)}"
+                    ) from e
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"資料完整性錯誤（錯誤代碼：{error_code}）：{e.pgerror or str(e)}"
+                ) from e
         except Exception as e:
-            # 這裡可以再細分錯誤型別，先簡單處理常見情況
-            # 例如 national_id UNIQUE 衝突
+            # 其他錯誤
             raise HTTPException(
                 status_code=400,
-                detail="Cannot create patient account, please check national_id (身分證字號可能重複).",
+                detail=f"無法建立病人帳號：{str(e)}。請檢查輸入資料。"
             ) from e
 
     def get_patient_profile(self, patient_id: int):

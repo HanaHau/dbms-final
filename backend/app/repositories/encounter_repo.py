@@ -25,8 +25,10 @@ class EncounterRepository:
                         e.chief_complaint,
                         e.subjective,
                         e.assessment,
-                        e.plan
+                        e.plan,
+                        a.patient_id
                     FROM ENCOUNTER e
+                    JOIN APPOINTMENT a ON e.appt_id = a.appt_id
                     WHERE e.appt_id = %s
                       AND e.provider_id = %s;
                     """,

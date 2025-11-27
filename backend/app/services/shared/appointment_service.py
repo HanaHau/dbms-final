@@ -27,7 +27,14 @@ class AppointmentService:
         except Exception as e:
             if isinstance(e, HTTPException):
                 raise e
+            import traceback
             error_msg = str(e)
+            error_trace = traceback.format_exc()
+            print(f"❌ 建立掛號錯誤:")
+            print(f"   patient_id: {patient_id}, session_id: {session_id}")
+            print(f"   錯誤訊息: {error_msg}")
+            print(f"   錯誤堆疊:\n{error_trace}")
+            
             if "already has an appointment" in error_msg:
                 raise HTTPException(
                     status_code=409,
@@ -40,7 +47,17 @@ class AppointmentService:
                 )
             elif "Session not found" in error_msg:
                 raise HTTPException(status_code=404, detail="Session not found")
-            raise HTTPException(status_code=500, detail=f"Error creating appointment: {str(e)}") from e
+            elif "Session has ended" in error_msg or "cannot book appointment" in error_msg:
+                raise HTTPException(
+                    status_code=409,
+                    detail="此門診時段已結束，無法預約"
+                )
+            elif "Session is cancelled" in error_msg or "cancelled" in error_msg.lower():
+                raise HTTPException(
+                    status_code=409,
+                    detail="此門診時段已取消"
+                )
+            raise HTTPException(status_code=500, detail=f"Error creating appointment: {error_msg}") from e
 
     def cancel_appointment(self, appt_id: int, patient_id: int):
         """

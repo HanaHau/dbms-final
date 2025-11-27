@@ -3,6 +3,7 @@ import hashlib
 from typing import Optional
 from datetime import date, time
 from fastapi import HTTPException
+import psycopg2
 
 from ..repositories import (
     ProviderRepository,
@@ -47,11 +48,48 @@ class ProviderService:
                 dept_id=dept_id,
             )
             return provider
+        except psycopg2.IntegrityError as e:
+            # PostgreSQL 完整性約束錯誤
+            error_code = e.pgcode
+            error_msg = str(e).lower()
+            pgerror = e.pgerror.lower() if e.pgerror else ""
+            
+            # 23505 = unique_violation
+            if error_code == '23505':
+                # 檢查是哪個唯一約束違反
+                if 'license_no' in error_msg or 'license_no' in pgerror or 'provider_license_no_key' in pgerror:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"執照號碼 '{license_no}' 已存在，請使用不同的執照號碼。"
+                    ) from e
+                else:
+                    # 顯示完整的錯誤訊息以便調試
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"資料唯一性約束違反：{e.pgerror or str(e)}"
+                    ) from e
+            # 23503 = foreign_key_violation
+            elif error_code == '23503':
+                if 'dept_id' in error_msg or 'dept_id' in pgerror or 'department' in pgerror or 'provider_dept_id_fkey' in pgerror:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"科別 ID {dept_id} 不存在，請確認科別 ID 是否正確。"
+                    ) from e
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"外鍵約束違反：{e.pgerror or str(e)}"
+                    ) from e
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"資料完整性錯誤（錯誤代碼：{error_code}）：{e.pgerror or str(e)}"
+                ) from e
         except Exception as e:
-            # 這裡可以再細分錯誤型別，先簡單處理常見情況
-            # 例如 license_no UNIQUE 衝突
+            # 其他錯誤
             raise HTTPException(
-                status_code=400, detail="Cannot create provider, please check license_no / dept_id."
+                status_code=400,
+                detail=f"無法建立醫師帳號：{str(e)}。請檢查輸入資料。"
             ) from e
 
     def get_provider_profile(self, provider_id: int):
@@ -154,6 +192,14 @@ class ProviderService:
             )
         return {"success": True}
 
+    def update_expired_sessions(self, provider_id: int = None):
+        """
+        更新所有已過期的門診時段狀態為停診（status = 0）。
+        如果提供 provider_id，只更新該醫師的門診時段。
+        """
+        updated_count = self.session_repo.update_expired_sessions(provider_id)
+        return {"success": True, "updated_count": updated_count}
+
     def list_appointments(self, provider_id: int, session_id: int):
         """列出某個門診時段的掛號清單"""
         return self.appointment_repo.list_appointments_for_session(provider_id, session_id)
@@ -169,6 +215,13 @@ class ProviderService:
         if row is None:
             raise HTTPException(status_code=404, detail="Encounter not found")
         return row
+
+    def get_appointment_patient_id(self, appt_id: int):
+        """根據 appt_id 取得 patient_id"""
+        appointment = self.appointment_repo.get_appointment_by_id(appt_id)
+        if appointment is None:
+            raise HTTPException(status_code=404, detail="Appointment not found")
+        return {"patient_id": appointment["patient_id"]}
 
     def upsert_encounter(
         self,
@@ -227,11 +280,15 @@ class ProviderService:
             ) from e
         return self.diagnosis_repo.list_diagnoses_for_encounter(enct_id)
 
+    def search_diseases(self, query: str = None, limit: int = 50):
+        """搜尋疾病（ICD 代碼和描述）"""
+        return self.diagnosis_repo.search_diseases(query, limit)
+
     def get_prescription(self, enct_id: int):
-        """取得處方箋"""
+        """取得處方箋，如果不存在則返回 None（與 get_payment 行為一致）"""
         rx = self.prescription_repo.get_prescription_for_encounter(enct_id)
-        if rx is None:
-            raise HTTPException(status_code=404, detail="Prescription not found")
+        # 如果處方不存在，返回 None 而不是拋出 404
+        # 前端已經用 .catch(() => null) 處理，但為了保持一致性，這裡也返回 None
         return rx
 
     def upsert_prescription(self, enct_id: int, status: int, items: list):
@@ -245,6 +302,18 @@ class ProviderService:
     def list_encounters_for_patient_by_provider(self, provider_id: int, patient_id: int):
         """醫師查詢某位病患在自己這裡的所有就診紀錄"""
         return self.encounter_repo.list_encounters_for_patient_by_provider(provider_id, patient_id)
+
+    def list_all_encounters_for_patient(self, patient_id: int):
+        """醫師查詢某位病患的所有就診紀錄（不限醫師、科別）"""
+        return self.encounter_repo.list_encounters_for_patient(patient_id, provider_id=None)
+
+    def list_all_diagnoses_for_patient(self, patient_id: int):
+        """醫師查詢某位病患的所有診斷（不限醫師、科別）"""
+        return self.diagnosis_repo.list_diagnoses_for_patient(patient_id)
+
+    def list_all_lab_results_for_patient(self, patient_id: int):
+        """醫師查詢某位病患的所有檢驗結果（不限醫師、科別）"""
+        return self.lab_result_repo.list_lab_results_for_patient(patient_id)
 
     def list_lab_results(self, enct_id: int):
         """列出某次就診的所有檢驗結果"""

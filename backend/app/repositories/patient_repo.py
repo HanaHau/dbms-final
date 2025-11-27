@@ -1,5 +1,6 @@
 # repositories/patient_repo.py
 from psycopg2.extras import RealDictCursor
+import psycopg2
 from ..pg_base import get_pg_conn
 
 
@@ -43,6 +44,13 @@ class PatientRepository:
 
                 patient_row["name"] = name
                 return patient_row
+        except psycopg2.IntegrityError as e:
+            # 重新拋出 IntegrityError，讓 service 層處理
+            conn.rollback()
+            raise e
+        except Exception as e:
+            conn.rollback()
+            raise e
         finally:
             conn.close()
 

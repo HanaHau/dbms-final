@@ -38,6 +38,30 @@ class AppointmentRepository:
             )
 
     @staticmethod
+    def get_appointment_by_id(appt_id):
+        """
+        根據 appt_id 取得掛號資訊，包含 patient_id。
+        """
+        conn = get_pg_conn()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        a.appt_id,
+                        a.slot_seq,
+                        a.patient_id,
+                        a.session_id
+                    FROM APPOINTMENT a
+                    WHERE a.appt_id = %s;
+                    """,
+                    (appt_id,),
+                )
+                return cur.fetchone()
+        finally:
+            conn.close()
+
+    @staticmethod
     def list_appointments_for_session(provider_user_id, session_id):
         """
         列出某個門診時段的掛號清單（只允許看自己的 session）。
@@ -117,8 +141,8 @@ class AppointmentRepository:
                         cs.provider_id,
                         u_provider.name AS provider_name,
                         pr.dept_id,
-                        d.name AS department_name,
-                        ash_latest.to_status AS status,
+                        COALESCE(d.name, '') AS dept_name,
+                        COALESCE(ash_latest.to_status, 1) AS status,
                         ash_latest.changed_at AS status_changed_at
                     FROM APPOINTMENT a
                     JOIN CLINIC_SESSION cs ON a.session_id = cs.session_id
@@ -188,6 +212,8 @@ class AppointmentRepository:
         """
         conn = get_pg_conn()
         try:
+            # 確保使用事務
+            conn.autocommit = False
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 # 檢查是否已在該 session 重複掛號
                 cur.execute(
@@ -202,26 +228,13 @@ class AppointmentRepository:
                     conn.rollback()
                     raise Exception("Patient already has an appointment for this session")
 
-                # 使用 FOR UPDATE 鎖定 session 相關的 appointment 記錄，避免併行衝突
-                # 在 transaction 中執行，確保原子性
+                # 檢查 session 容量並鎖定 session 記錄，避免併行衝突
                 cur.execute(
                     """
-                    SELECT COUNT(*) AS booked_count
-                    FROM APPOINTMENT
+                    SELECT capacity, provider_id, date, end_time, status
+                    FROM CLINIC_SESSION
                     WHERE session_id = %s
                     FOR UPDATE;
-                    """,
-                    (session_id,),
-                )
-                row = cur.fetchone()
-                booked_count = row["booked_count"] if row else 0
-
-                # 檢查 session 容量
-                cur.execute(
-                    """
-                    SELECT capacity
-                    FROM CLINIC_SESSION
-                    WHERE session_id = %s;
                     """,
                     (session_id,),
                 )
@@ -231,6 +244,45 @@ class AppointmentRepository:
                     raise Exception("Session not found")
 
                 capacity = session_row["capacity"]
+                provider_id = session_row["provider_id"]
+                session_date = session_row["date"]
+                session_end_time = session_row["end_time"]
+                session_status = session_row["status"]
+
+                # 檢查 session 狀態
+                if session_status == 0:
+                    conn.rollback()
+                    raise Exception("Session is cancelled")
+
+                # 檢查是否已過門診時間，如果已過則自動更新 status 為 0（停診）
+                from datetime import datetime, date, time
+                now = datetime.now()
+                session_datetime = datetime.combine(session_date, session_end_time)
+                if now > session_datetime:
+                    # 自動將 status 更新為 0（停診）
+                    cur.execute(
+                        """
+                        UPDATE CLINIC_SESSION
+                        SET status = 0
+                        WHERE session_id = %s;
+                        """,
+                        (session_id,),
+                    )
+                    conn.rollback()
+                    raise Exception("Session has ended, cannot book appointment")
+
+                # 計算已預約人數（在鎖定 session 後）
+                cur.execute(
+                    """
+                    SELECT COUNT(*) AS booked_count
+                    FROM APPOINTMENT
+                    WHERE session_id = %s;
+                    """,
+                    (session_id,),
+                )
+                row = cur.fetchone()
+                booked_count = row["booked_count"] if row else 0
+
                 if booked_count >= capacity:
                     conn.rollback()
                     raise Exception("Session is full")
@@ -250,6 +302,8 @@ class AppointmentRepository:
                 new_appt_id = appt["appt_id"]
 
                 # 寫入 APPOINTMENT_STATUS_HISTORY（初始狀態，假設狀態 1 為「已預約」）
+                # 注意：changed_by 必須是 provider_id，因為外鍵約束指向 provider 表
+                # 雖然是病人建立的，但系統層面記錄為 provider（因為外鍵約束限制）
                 cur.execute(
                     """
                     INSERT INTO APPOINTMENT_STATUS_HISTORY (
@@ -257,12 +311,17 @@ class AppointmentRepository:
                     )
                     VALUES (%s, NULL, 1, %s, NOW());
                     """,
-                    (new_appt_id, patient_id),
+                    (new_appt_id, provider_id),
                 )
 
                 conn.commit()
                 return appt
         except Exception as e:
+            import traceback
+            print(f"❌ AppointmentRepository.create_appointment 錯誤:")
+            print(f"   patient_id: {patient_id}, session_id: {session_id}")
+            print(f"   錯誤訊息: {str(e)}")
+            print(f"   錯誤堆疊:\n{traceback.format_exc()}")
             conn.rollback()
             raise e
         finally:
