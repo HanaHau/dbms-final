@@ -30,6 +30,7 @@ export const ProviderEncounter: React.FC = () => {
   const [diseaseSearchQuery, setDiseaseSearchQuery] = useState('');
   const [diseaseOptions, setDiseaseOptions] = useState<Array<{ code_icd: string; description: string }>>([]);
   const [showDiseaseDropdown, setShowDiseaseDropdown] = useState(false);
+  const [selectedDisease, setSelectedDisease] = useState<{ code_icd: string; description: string } | null>(null);
   
   // 表單狀態
   const [encounterForm, setEncounterForm] = useState({
@@ -172,15 +173,25 @@ export const ProviderEncounter: React.FC = () => {
   const searchDiseases = async (query: string) => {
     if (query.length < 1) {
       setDiseaseOptions([]);
+      setShowDiseaseDropdown(false);
+      setSelectedDisease(null);
       return;
     }
     try {
-      const results = await providerApi.searchDiseases(query, 20);
+      const results = await providerApi.searchDiseases(query, 50);
       setDiseaseOptions(results);
       setShowDiseaseDropdown(true);
     } catch (err) {
       console.error('搜尋疾病失敗:', err);
     }
+  };
+
+  // 選擇疾病
+  const handleSelectDisease = (disease: { code_icd: string; description: string }) => {
+    setSelectedDisease(disease);
+    setNewDiagnosis({ ...newDiagnosis, code_icd: disease.code_icd });
+    setDiseaseSearchQuery(`${disease.code_icd} - ${disease.description}`);
+    setShowDiseaseDropdown(false);
   };
 
   const handleSaveEncounter = async () => {
@@ -195,7 +206,10 @@ export const ProviderEncounter: React.FC = () => {
   };
 
   const handleAddDiagnosis = async () => {
-    if (!user || !newDiagnosis.code_icd) return;
+    if (!user || !newDiagnosis.code_icd) {
+      alert('請選擇 ICD 代碼');
+      return;
+    }
     if (!encounter) {
       alert('請先建立就診記錄');
       setActiveTab('encounter');
@@ -210,6 +224,9 @@ export const ProviderEncounter: React.FC = () => {
       );
       alert('新增診斷成功！');
       setNewDiagnosis({ code_icd: '', is_primary: false });
+      setDiseaseSearchQuery('');
+      setSelectedDisease(null);
+      setDiseaseOptions([]);
       loadData();
     } catch (err: any) {
       alert(err.response?.data?.detail || '新增失敗');
@@ -412,36 +429,64 @@ export const ProviderEncounter: React.FC = () => {
                   <div className="disease-search-container">
                     <input
                       type="text"
-                      placeholder="搜尋 ICD 代碼或疾病名稱"
+                      placeholder="搜尋 ICD 代碼或疾病名稱..."
                       value={diseaseSearchQuery}
                       onChange={(e) => {
                         const query = e.target.value;
                         setDiseaseSearchQuery(query);
-                        searchDiseases(query);
+                        if (query.length > 0) {
+                          searchDiseases(query);
+                        } else {
+                          setDiseaseOptions([]);
+                          setShowDiseaseDropdown(false);
+                          setSelectedDisease(null);
+                          setNewDiagnosis({ ...newDiagnosis, code_icd: '' });
+                        }
                       }}
                       onFocus={() => {
-                        if (diseaseOptions.length > 0) setShowDiseaseDropdown(true);
+                        if (diseaseSearchQuery.length > 0 && diseaseOptions.length > 0) {
+                          setShowDiseaseDropdown(true);
+                        }
                       }}
                       onBlur={() => {
                         // 延遲關閉，讓點擊選項有時間執行
                         setTimeout(() => setShowDiseaseDropdown(false), 200);
                       }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                          setShowDiseaseDropdown(false);
+                        }
+                      }}
                     />
-                    {showDiseaseDropdown && diseaseOptions.length > 0 && (
+                    {showDiseaseDropdown && (
                       <div className="disease-dropdown">
-                        {diseaseOptions.map((disease) => (
-                          <div
-                            key={disease.code_icd}
-                            className="disease-option"
-                            onClick={() => {
-                              setNewDiagnosis({ ...newDiagnosis, code_icd: disease.code_icd });
-                              setDiseaseSearchQuery(`${disease.code_icd} - ${disease.description}`);
-                              setShowDiseaseDropdown(false);
-                            }}
-                          >
-                            <strong>{disease.code_icd}</strong> - {disease.description}
+                        {diseaseOptions.length > 0 ? (
+                          <>
+                            <div className="disease-dropdown-header">
+                              找到 {diseaseOptions.length} 個結果
+                            </div>
+                            {diseaseOptions.map((disease) => (
+                              <div
+                                key={disease.code_icd}
+                                className={`disease-option ${selectedDisease?.code_icd === disease.code_icd ? 'selected' : ''}`}
+                                onClick={() => handleSelectDisease(disease)}
+                                onMouseEnter={() => setSelectedDisease(disease)}
+                              >
+                                <div className="disease-code">{disease.code_icd}</div>
+                                <div className="disease-description">{disease.description}</div>
+                              </div>
+                            ))}
+                          </>
+                        ) : diseaseSearchQuery.length > 0 ? (
+                          <div className="disease-option no-results">
+                            沒有找到相關疾病
                           </div>
-                        ))}
+                        ) : null}
+                      </div>
+                    )}
+                    {selectedDisease && (
+                      <div className="selected-disease-info">
+                        已選擇：<strong>{selectedDisease.code_icd}</strong> - {selectedDisease.description}
                       </div>
                     )}
                   </div>
@@ -453,7 +498,11 @@ export const ProviderEncounter: React.FC = () => {
                     />
                     設為主要診斷
                   </label>
-                  <button className="btn btn-primary" onClick={handleAddDiagnosis}>
+                  <button 
+                    className="btn btn-primary" 
+                    onClick={handleAddDiagnosis}
+                    disabled={!newDiagnosis.code_icd}
+                  >
                     新增
                   </button>
                 </div>
