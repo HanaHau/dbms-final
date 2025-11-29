@@ -43,10 +43,35 @@
 }
 
 .sessions-list {
+  margin: 1.5rem 0;
+}
+
+.department-section {
+  margin-bottom: 3rem;
+  padding: 1.5rem;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+}
+
+.department-section:last-child {
+  margin-bottom: 0;
+}
+
+.department-section h3 {
+  margin-top: 0;
+  margin-bottom: 1.5rem;
+  color: #2c3e50;
+  font-weight: 600;
+  font-size: 1.4rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 3px solid #495057;
+}
+
+.sessions-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 1rem;
-  margin: 1.5rem 0;
 }
 
 .session-card.unavailable {

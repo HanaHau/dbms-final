@@ -185,7 +185,7 @@ class SessionRepository:
                         pr.dept_id,
                         u.name AS provider_name,
                         pr.license_no,
-                        d.name AS department_name,
+                        d.name AS dept_name,
                         d.location AS department_location
                     FROM CLINIC_SESSION cs
                     JOIN PROVIDER pr ON cs.provider_id = pr.user_id
@@ -267,6 +267,9 @@ class SessionRepository:
         搜尋門診時段，可根據科別、醫師、日期過濾。
         回傳每個 session 的資訊，包含 provider 和 department 資訊，以及已預約人數。
         自動將已過 end_time 的 session status 更新為 0（停診）。
+        
+        注意：門診的科別（dept_name）來自該門診醫師的科別。
+        查詢邏輯：CLINIC_SESSION → PROVIDER (provider_id) → DEPARTMENT (dept_id)
         """
         conn = get_pg_conn()
         try:
@@ -317,7 +320,7 @@ class SessionRepository:
                         pr.dept_id,
                         u.name AS provider_name,
                         pr.license_no,
-                        d.name AS department_name,
+                        d.name AS dept_name,
                         d.location AS department_location,
                         COUNT(a.appt_id) AS booked_count
                     FROM CLINIC_SESSION cs

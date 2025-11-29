@@ -28,15 +28,28 @@ export const PatientHome: React.FC = () => {
       const data = await patientApi.listSessions();
       setSessions(data);
       
-      // 依科別分組
+      // 依科別分組：門診的科別來自該門診醫師的科別
+      // 後端查詢邏輯：CLINIC_SESSION → PROVIDER (provider_id) → DEPARTMENT (dept_id)
       const grouped: Record<string, ClinicSession[]> = {};
-      data.forEach((session) => {
+      data.forEach((session: ClinicSession) => {
+        // session.dept_name 來自該門診的醫師所屬科別
         const deptName = session.dept_name || '其他';
         if (!grouped[deptName]) {
           grouped[deptName] = [];
         }
         grouped[deptName].push(session);
       });
+      
+      // 對每個科別的門診依時間排序（先日期，再開始時間）
+      Object.keys(grouped).forEach((deptName) => {
+        grouped[deptName].sort((a, b) => {
+          if (a.date !== b.date) {
+            return a.date.localeCompare(b.date);
+          }
+          return a.start_time.localeCompare(b.start_time);
+        });
+      });
+      
       setGroupedSessions(grouped);
     } catch (err) {
       console.error('載入門診失敗:', err);
@@ -97,30 +110,34 @@ export const PatientHome: React.FC = () => {
           Object.entries(groupedSessions).map(([deptName, deptSessions]) => (
             <div key={deptName} className="department-section">
               <h2>{deptName}</h2>
-              <div className="sessions-grid">
+              <div className="sessions-list">
                 {deptSessions.map((session) => {
                   const available = isSessionAvailable(session);
                   return (
                     <div
                       key={session.session_id}
-                      className={`session-card ${selectedSessionId === session.session_id ? 'selected' : ''} ${!available ? 'unavailable' : ''}`}
+                      className={`session-item ${selectedSessionId === session.session_id ? 'selected' : ''} ${!available ? 'unavailable' : ''}`}
                       onClick={() => available && setSelectedSessionId(session.session_id)}
                     >
-                      <div className="session-header">
-                        <strong>{session.provider_name || '醫師'}</strong>
-                      </div>
-                      <div className="session-info">
-                        <div>日期：{session.date}</div>
-                        <div>時間：{formatTime(session.start_time)} - {formatTime(session.end_time)}</div>
-                        <div>已預約：{session.booked_count || 0} / {session.capacity}</div>
-                      </div>
-                      {!available && (
-                        <div className="unavailable-badge">
-                          {session.status === 0 ? '停診' : 
-                           session.booked_count >= session.capacity ? '已滿' : 
-                           '已過時段'}
+                      <div className="session-item-content">
+                        <div className="session-item-main">
+                          <div className="session-provider">
+                            <strong>{session.provider_name || '醫師'}</strong>
+                          </div>
+                          <div className="session-details">
+                            <span className="session-date">日期：{session.date}</span>
+                            <span className="session-time">時間：{formatTime(session.start_time)} - {formatTime(session.end_time)}</span>
+                            <span className="session-capacity">已預約：{session.booked_count || 0} / {session.capacity}</span>
+                          </div>
                         </div>
-                      )}
+                        {!available && (
+                          <div className="unavailable-badge">
+                            {session.status === 0 ? '停診' : 
+                             session.booked_count >= session.capacity ? '已滿' : 
+                             '已過時段'}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   );
                 })}

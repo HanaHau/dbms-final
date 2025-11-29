@@ -19,77 +19,127 @@
 
 .department-section {
   margin-bottom: 3rem;
+  padding: 2rem;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.department-section:last-child {
+  margin-bottom: 0;
 }
 
 .department-section h2 {
-  margin-bottom: 1rem;
-  color: #495057;
+  margin-top: 0;
+  margin-bottom: 1.5rem;
+  color: #2c3e50;
   font-weight: 600;
   font-size: 1.5rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 2px solid #e9ecef;
-}
-
-.sessions-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 1.5rem;
-  margin-bottom: 2rem;
-}
-
-.session-card {
-  background: white;
-  border: 2px solid #e9ecef;
-  border-radius: 8px;
-  padding: 1.5rem;
-  cursor: pointer;
-  transition: all 0.2s ease;
+  padding-bottom: 0.75rem;
+  border-bottom: 3px solid #495057;
   position: relative;
 }
 
-.session-card:hover:not(.unavailable) {
-  border-color: #495057;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+.department-section h2::after {
+  content: '';
+  position: absolute;
+  bottom: -3px;
+  left: 0;
+  width: 60px;
+  height: 3px;
+  background-color: #2c3e50;
 }
 
-.session-card.selected {
+.sessions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 2rem;
+}
+
+.session-item {
+  background: white;
+  border: 1px solid #e9ecef;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.session-item:hover:not(.unavailable) {
+  border-color: #495057;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+}
+
+.session-item.selected {
   border-color: #2c3e50;
+  border-width: 2px;
   background-color: #f8f9fa;
 }
 
-.session-card.unavailable {
+.session-item.unavailable {
   opacity: 0.6;
   cursor: not-allowed;
   background-color: #f8f9fa;
 }
 
-.session-header {
-  margin-bottom: 1rem;
-}
-
-.session-header strong {
-  color: #2c3e50;
-  font-size: 1.1rem;
-}
-
-.session-info {
+.session-item-content {
   display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.5rem;
+}
+
+.session-item-main {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+  flex: 1;
+}
+
+.session-provider {
+  min-width: 120px;
+}
+
+.session-provider strong {
+  color: #2c3e50;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.session-details {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
   color: #6c757d;
   font-size: 0.95rem;
+  flex-wrap: wrap;
+}
+
+.session-details span {
+  white-space: nowrap;
+}
+
+.session-date {
+  min-width: 120px;
+}
+
+.session-time {
+  min-width: 180px;
+}
+
+.session-capacity {
+  min-width: 100px;
 }
 
 .unavailable-badge {
-  position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
   background-color: #dc3545;
   color: white;
-  padding: 0.25rem 0.75rem;
+  padding: 0.375rem 0.75rem;
   border-radius: 4px;
   font-size: 0.875rem;
   font-weight: 500;
+  white-space: nowrap;
 }
 
 .booking-actions {
@@ -102,8 +152,27 @@
 }
 
 @media (max-width: 768px) {
-  .sessions-grid {
-    grid-template-columns: 1fr;
+  .session-item-content {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .session-item-main {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+    width: 100%;
+  }
+
+  .session-details {
+    flex-direction: column;
+    gap: 0.5rem;
+    width: 100%;
+  }
+
+  .session-details span {
+    width: 100%;
   }
 }
 

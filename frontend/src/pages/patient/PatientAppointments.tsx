@@ -12,6 +12,7 @@ export const PatientAppointments: React.FC = () => {
   const navigate = useNavigate();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [sessions, setSessions] = useState<ClinicSession[]>([]);
+  const [groupedSessions, setGroupedSessions] = useState<Record<string, ClinicSession[]>>({});
   const [loading, setLoading] = useState(true);
   const [showBookForm, setShowBookForm] = useState(false);
   const [filters, setFilters] = useState({
@@ -29,6 +30,29 @@ export const PatientAppointments: React.FC = () => {
     loadData();
   }, [user, userType]);
 
+  const groupSessionsByDepartment = (sess: ClinicSession[]) => {
+    const grouped: Record<string, ClinicSession[]> = {};
+    sess.forEach((session) => {
+      const deptName = session.dept_name || '其他';
+      if (!grouped[deptName]) {
+        grouped[deptName] = [];
+      }
+      grouped[deptName].push(session);
+    });
+    
+    // 對每個科別的門診依時間排序（先日期，再開始時間）
+    Object.keys(grouped).forEach((deptName) => {
+      grouped[deptName].sort((a, b) => {
+        if (a.date !== b.date) {
+          return a.date.localeCompare(b.date);
+        }
+        return a.start_time.localeCompare(b.start_time);
+      });
+    });
+    
+    return grouped;
+  };
+
   const loadData = async () => {
     if (!user) return;
     try {
@@ -38,6 +62,7 @@ export const PatientAppointments: React.FC = () => {
       ]);
       setAppointments(appts);
       setSessions(sess);
+      setGroupedSessions(groupSessionsByDepartment(sess));
     } catch (err) {
       console.error('載入資料失敗:', err);
     } finally {
@@ -53,6 +78,7 @@ export const PatientAppointments: React.FC = () => {
       if (filters.date) params.date = filters.date;
       const sess = await patientApi.listSessions(params);
       setSessions(sess);
+      setGroupedSessions(groupSessionsByDepartment(sess));
     } catch (err) {
       console.error('查詢失敗:', err);
     }
@@ -147,41 +173,52 @@ export const PatientAppointments: React.FC = () => {
               </button>
             </div>
             <div className="sessions-list">
-              {sessions.map((session) => {
-                const isAvailable = () => {
-                  if (session.status === 0) return false;
-                  if (session.booked_count >= session.capacity) return false;
-                  const now = new Date();
-                  const sessionDate = new Date(`${session.date}T${session.end_time}`);
-                  return now <= sessionDate;
-                };
-                const available = isAvailable();
-                
-                return (
-                  <div
-                    key={session.session_id}
-                    className={`session-card ${selectedSessionId === session.session_id ? 'selected' : ''} ${!available ? 'unavailable' : ''}`}
-                    onClick={() => available && setSelectedSessionId(session.session_id)}
-                  >
-                    <div>
-                      <strong>{session.provider_name}</strong> - {session.dept_name}
+              {Object.keys(groupedSessions).length === 0 ? (
+                <p>目前沒有可預約的門診</p>
+              ) : (
+                Object.entries(groupedSessions).map(([deptName, deptSessions]) => (
+                  <div key={deptName} className="department-section">
+                    <h3>{deptName}</h3>
+                    <div className="sessions-grid">
+                      {deptSessions.map((session) => {
+                        const isAvailable = () => {
+                          if (session.status === 0) return false;
+                          if (session.booked_count >= session.capacity) return false;
+                          const now = new Date();
+                          const sessionDate = new Date(`${session.date}T${session.end_time}`);
+                          return now <= sessionDate;
+                        };
+                        const available = isAvailable();
+                        
+                        return (
+                          <div
+                            key={session.session_id}
+                            className={`session-card ${selectedSessionId === session.session_id ? 'selected' : ''} ${!available ? 'unavailable' : ''}`}
+                            onClick={() => available && setSelectedSessionId(session.session_id)}
+                          >
+                            <div>
+                              <strong>{session.provider_name}</strong>
+                            </div>
+                            <div>
+                              {session.date} {session.start_time} - {session.end_time}
+                            </div>
+                            <div>
+                              已預約: {session.booked_count || 0} / {session.capacity}
+                            </div>
+                            {!available && (
+                              <div className="unavailable-badge">
+                                {session.status === 0 ? '停診' : 
+                                 session.booked_count >= session.capacity ? '已滿' : 
+                                 '已過時段'}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
-                    <div>
-                      {session.date} {session.start_time} - {session.end_time}
-                    </div>
-                    <div>
-                      已預約: {session.booked_count || 0} / {session.capacity}
-                    </div>
-                    {!available && (
-                      <div className="unavailable-badge">
-                        {session.status === 0 ? '停診' : 
-                         session.booked_count >= session.capacity ? '已滿' : 
-                         '已過時段'}
-                      </div>
-                    )}
                   </div>
-                );
-              })}
+                ))
+              )}
             </div>
             {selectedSessionId && (
               <button className="btn btn-primary" onClick={handleBookAppointment}>
