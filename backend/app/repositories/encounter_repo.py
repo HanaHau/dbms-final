@@ -1,6 +1,7 @@
 # repositories/encounter_repo.py
 from psycopg2.extras import RealDictCursor
 from ..pg_base import get_pg_conn
+from .appointment_repo import AppointmentRepository
 
 
 class EncounterRepository:
@@ -55,19 +56,22 @@ class EncounterRepository:
         """
         conn = get_pg_conn()
         try:
+            # 確保使用事務
+            conn.autocommit = False
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # 先檢查 appt_id 是否存在（因為 appt_id 有唯一約束）
                 cur.execute(
                     """
-                    SELECT enct_id
+                    SELECT enct_id, provider_id
                     FROM ENCOUNTER
-                    WHERE appt_id = %s
-                      AND provider_id = %s;
+                    WHERE appt_id = %s;
                     """,
-                    (appt_id, provider_user_id),
+                    (appt_id,),
                 )
                 row = cur.fetchone()
 
                 if row is None:
+                    # 創建新的 encounter
                     cur.execute(
                         """
                         INSERT INTO ENCOUNTER (
@@ -89,7 +93,25 @@ class EncounterRepository:
                             plan,
                         ),
                     )
+                    
+                    # 當創建 encounter 時，自動將 appointment 狀態更新為 completed (3)
+                    # 根據資料字典：狀態定義 {1:booked, 2:checked_in, 3:completed, 4:cancelled, 5:no_show, 6:waitlisted}
+                    # 狀態 3 = completed
+                    from_status = AppointmentRepository._get_latest_status(conn, appt_id)
+                    AppointmentRepository._insert_status_history(
+                        conn, appt_id, from_status, 3, provider_user_id
+                    )
                 else:
+                    # 檢查 provider_id 是否匹配
+                    existing_provider_id = row["provider_id"]
+                    if existing_provider_id != provider_user_id:
+                        conn.rollback()
+                        raise Exception(
+                            f"Encounter already exists for appointment {appt_id} "
+                            f"with provider {existing_provider_id}. "
+                            f"Cannot update with provider {provider_user_id}."
+                        )
+                    
                     enct_id = row["enct_id"]
                     cur.execute(
                         """
@@ -118,6 +140,9 @@ class EncounterRepository:
                 result = cur.fetchone()
                 conn.commit()
                 return result
+        except Exception as e:
+            conn.rollback()
+            raise e
         finally:
             conn.close()
 

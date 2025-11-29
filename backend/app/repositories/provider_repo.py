@@ -18,7 +18,7 @@ class ProviderRepository:
         conn = get_pg_conn()
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # USER - 使用自動生成的 user_id
+                # 步驟 1: 在 USER 表中創建記錄（type = 'provider'）
                 cur.execute(
                     """
                     INSERT INTO "USER" (name, hash_pwd, type)
@@ -28,9 +28,18 @@ class ProviderRepository:
                     (name, hash_pwd),
                 )
                 user_row = cur.fetchone()
-                new_user_id = user_row["user_id"]
+                
+                # 驗證 USER 記錄是否成功創建
+                if not user_row:
+                    raise Exception("Failed to create USER record: INSERT did not return user_id")
+                
+                # 獲取新創建的 user_id
+                new_user_id = user_row.get("user_id") if hasattr(user_row, 'get') else user_row["user_id"]
+                
+                if not new_user_id:
+                    raise Exception(f"Failed to get user_id from USER INSERT result: {user_row}")
 
-                # PROVIDER
+                # 步驟 2: 在 PROVIDER 表中創建記錄（使用剛創建的 user_id）
                 cur.execute(
                     """
                     INSERT INTO PROVIDER (user_id, dept_id, license_no, active)
@@ -40,8 +49,15 @@ class ProviderRepository:
                     (new_user_id, dept_id, license_no),
                 )
                 provider_row = cur.fetchone()
+                
+                # 驗證 PROVIDER 記錄是否成功創建
+                if not provider_row:
+                    raise Exception(f"Failed to create PROVIDER record with user_id={new_user_id}")
+                
+                # 提交事務（確保 USER 和 PROVIDER 記錄都成功創建）
                 conn.commit()
 
+                # 添加 name 到返回結果
                 provider_row["name"] = name
                 return provider_row
         except psycopg2.IntegrityError as e:

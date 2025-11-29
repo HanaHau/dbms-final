@@ -261,8 +261,43 @@ class ProviderService:
 
     def upsert_diagnosis(self, enct_id: int, code_icd: str, is_primary: bool):
         """新增或更新診斷"""
-        self.diagnosis_repo.upsert_diagnosis(enct_id, code_icd, is_primary)
-        return self.diagnosis_repo.list_diagnoses_for_encounter(enct_id)
+        import psycopg2
+        try:
+            self.diagnosis_repo.upsert_diagnosis(enct_id, code_icd, is_primary)
+            return self.diagnosis_repo.list_diagnoses_for_encounter(enct_id)
+        except psycopg2.IntegrityError as e:
+            error_code = e.pgcode
+            error_msg = str(e).lower()
+            pgerror = e.pgerror.lower() if e.pgerror else ""
+            
+            # 23503 = foreign_key_violation
+            if error_code == '23503':
+                if 'enct_id' in error_msg or 'enct_id' in pgerror or 'encounter' in pgerror:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"就診記錄 (enct_id={enct_id}) 不存在"
+                    ) from e
+                elif 'code_icd' in error_msg or 'code_icd' in pgerror or 'disease' in pgerror:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"疾病代碼 '{code_icd}' 不存在於 DISEASE 表中"
+                    ) from e
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"外鍵約束違反：{e.pgerror or str(e)}"
+                    ) from e
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"無法新增診斷：{e.pgerror or str(e)}"
+                ) from e
+        except Exception as e:
+            # 其他錯誤（包括自定義的驗證錯誤）
+            raise HTTPException(
+                status_code=400,
+                detail=f"無法新增診斷：{str(e)}"
+            ) from e
 
     def set_primary_diagnosis(self, enct_id: int, code_icd: str):
         """設定主要診斷"""
@@ -283,6 +318,10 @@ class ProviderService:
     def search_diseases(self, query: str = None, limit: int = 50):
         """搜尋疾病（ICD 代碼和描述）"""
         return self.diagnosis_repo.search_diseases(query, limit)
+
+    def search_medications(self, query: str = None, limit: int = 50):
+        """搜尋藥品（med_id 和 name）"""
+        return self.prescription_repo.search_medications(query, limit)
 
     def get_prescription(self, enct_id: int):
         """取得處方箋，如果不存在則返回 None（與 get_payment 行為一致）"""

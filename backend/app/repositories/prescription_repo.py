@@ -190,3 +190,37 @@ class PrescriptionRepository:
         finally:
             conn.close()
 
+    @staticmethod
+    def search_medications(query: str = None, limit: int = 50):
+        """
+        搜尋藥品（med_id 和 name）。
+        如果提供 query，則搜尋 med_id 或 name 包含該字串的藥品。
+        """
+        conn = get_pg_conn()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                if query:
+                    cur.execute(
+                        """
+                        SELECT med_id, name, spec, unit
+                        FROM MEDICATION
+                        WHERE CAST(med_id AS TEXT) ILIKE %s OR name ILIKE %s
+                        ORDER BY med_id
+                        LIMIT %s;
+                        """,
+                        (f"%{query}%", f"%{query}%", limit),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        SELECT med_id, name, spec, unit
+                        FROM MEDICATION
+                        ORDER BY med_id
+                        LIMIT %s;
+                        """,
+                        (limit,),
+                    )
+                return cur.fetchall()
+        finally:
+            conn.close()
+

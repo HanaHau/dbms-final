@@ -121,6 +121,56 @@ export const ProviderSessions: React.FC = () => {
     setShowForm(true);
   };
 
+  // 分類門診時段
+  const categorizeSessions = (sessions: ClinicSession[]) => {
+    const now = new Date();
+    const currentDate = now.toISOString().split('T')[0]; // YYYY-MM-DD
+    const currentTime = now.toTimeString().split(' ')[0].substring(0, 5); // HH:MM
+
+    const active: ClinicSession[] = [];
+    const upcoming: ClinicSession[] = [];
+    const cancelled: ClinicSession[] = [];
+
+    sessions.forEach((session) => {
+      // 已停診
+      if (session.status === 0) {
+        cancelled.push(session);
+        return;
+      }
+
+      // 正常狀態的門診
+      const sessionDate = session.date;
+      const sessionStartTime = session.start_time.substring(0, 5); // HH:MM
+      const sessionEndTime = session.end_time.substring(0, 5); // HH:MM
+
+      // 正在看診：今天且當前時間在 start_time 和 end_time 之間
+      if (sessionDate === currentDate && 
+          currentTime >= sessionStartTime && 
+          currentTime <= sessionEndTime) {
+        active.push(session);
+      } 
+      // 未來門診：日期在未來，或日期是今天但時間在 start_time 之前
+      else if (sessionDate > currentDate || 
+               (sessionDate === currentDate && currentTime < sessionStartTime)) {
+        upcoming.push(session);
+      }
+      // 其他情況（已過期的正常門診：日期在過去，或日期是今天但時間在 end_time 之後）歸類為已停診
+      else {
+        cancelled.push(session);
+      }
+    });
+
+    // 未來門診依時間排序（先日期，再開始時間）
+    upcoming.sort((a, b) => {
+      if (a.date !== b.date) {
+        return a.date.localeCompare(b.date);
+      }
+      return a.start_time.localeCompare(b.start_time);
+    });
+
+    return { active, upcoming, cancelled };
+  };
+
   if (loading) return <Layout><div>載入中...</div></Layout>;
 
   return (
@@ -230,74 +280,93 @@ export const ProviderSessions: React.FC = () => {
         )}
 
         <div className="sessions-list">
-          <h2>門診時段列表</h2>
           {sessions.length === 0 ? (
             <p>目前沒有門診時段</p>
           ) : (
-            <table className="sessions-table">
-              <thead>
-                <tr>
-                  <th>日期</th>
-                  <th>時間</th>
-                  <th>人數上限</th>
-                  <th>已預約</th>
-                  <th>狀態</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sessions.map((session) => {
-                  // 格式化時間，只顯示時分
-                  const formatTime = (timeStr: string) => {
-                    if (!timeStr) return '';
-                    const time = timeStr.split(':');
-                    return `${time[0]}:${time[1]}`;
-                  };
-                  
-                  return (
-                    <tr key={session.session_id}>
-                      <td>{session.date}</td>
-                      <td className="time-cell">
-                        {formatTime(session.start_time)} - {formatTime(session.end_time)}
-                      </td>
-                      <td>{session.capacity}</td>
-                      <td>{session.booked_count || 0}</td>
-                      <td>
-                        {session.status === 0 ? (
-                          <span className="status-badge status-cancelled">停診</span>
-                        ) : (
-                          <span className="status-badge status-active">正常</span>
-                        )}
-                      </td>
-                      <td className="actions-cell">
-                        <div className="action-buttons">
-                          <button
-                            className="btn-small btn-secondary"
-                            onClick={() => startEdit(session)}
-                          >
-                            編輯
-                          </button>
-                          {session.status === 1 && (
-                            <button
-                              className="btn-small btn-danger"
-                              onClick={() => handleCancel(session.session_id)}
-                            >
-                              取消
-                            </button>
-                          )}
-                          <button
-                            className="btn-small btn-primary"
-                            onClick={() => navigate(`/provider/appointments/${session.session_id}`)}
-                          >
-                            查看預約
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            (() => {
+              const { active, upcoming, cancelled } = categorizeSessions(sessions);
+              
+              // 格式化時間，只顯示時分
+              const formatTime = (timeStr: string) => {
+                if (!timeStr) return '';
+                const time = timeStr.split(':');
+                return `${time[0]}:${time[1]}`;
+              };
+
+              // 渲染門診時段表格
+              const renderSessionTable = (sessionList: ClinicSession[], title: string) => {
+                if (sessionList.length === 0) return null;
+                
+                return (
+                  <div className="session-category">
+                    <h2>{title} ({sessionList.length})</h2>
+                    <table className="sessions-table">
+                      <thead>
+                        <tr>
+                          <th>日期</th>
+                          <th>時間</th>
+                          <th>人數上限</th>
+                          <th>已預約</th>
+                          <th>狀態</th>
+                          <th>操作</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sessionList.map((session) => (
+                          <tr key={session.session_id}>
+                            <td>{session.date}</td>
+                            <td className="time-cell">
+                              {formatTime(session.start_time)} - {formatTime(session.end_time)}
+                            </td>
+                            <td>{session.capacity}</td>
+                            <td>{session.booked_count || 0}</td>
+                            <td>
+                              {session.status === 0 ? (
+                                <span className="status-badge status-cancelled">停診</span>
+                              ) : (
+                                <span className="status-badge status-active">正常</span>
+                              )}
+                            </td>
+                            <td className="actions-cell">
+                              <div className="action-buttons">
+                                <button
+                                  className="btn-small btn-secondary"
+                                  onClick={() => startEdit(session)}
+                                >
+                                  編輯
+                                </button>
+                                {session.status === 1 && (
+                                  <button
+                                    className="btn-small btn-danger"
+                                    onClick={() => handleCancel(session.session_id)}
+                                  >
+                                    取消
+                                  </button>
+                                )}
+                                <button
+                                  className="btn-small btn-primary"
+                                  onClick={() => navigate(`/provider/appointments/${session.session_id}`)}
+                                >
+                                  查看預約
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              };
+
+              return (
+                <>
+                  {renderSessionTable(active, '正在看診')}
+                  {renderSessionTable(upcoming, '未來門診')}
+                  {renderSessionTable(cancelled, '已停診')}
+                </>
+              );
+            })()
           )}
         </div>
       </div>

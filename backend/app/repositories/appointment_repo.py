@@ -226,7 +226,7 @@ class AppointmentRepository:
                 )
                 if cur.fetchone() is not None:
                     conn.rollback()
-                    raise Exception("Patient already has an appointment for this session")
+                    raise Exception("無法重複預約同一門診")
 
                 # 檢查 session 容量並鎖定 session 記錄，避免併行衝突
                 cur.execute(

@@ -47,13 +47,13 @@ code {
 
 .btn-primary:active {
   transform: translateY(0);
-}
+  }
 
 .btn-secondary {
   background-color: white;
   color: #495057;
   border: 1px solid #dee2e6;
-}
+  }
 
 .btn-secondary:hover {
   background-color: #f8f9fa;

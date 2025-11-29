@@ -35,10 +35,10 @@ class AppointmentService:
             print(f"   錯誤訊息: {error_msg}")
             print(f"   錯誤堆疊:\n{error_trace}")
             
-            if "already has an appointment" in error_msg:
+            if "already has an appointment" in error_msg or "無法重複預約" in error_msg:
                 raise HTTPException(
                     status_code=409,
-                    detail="Patient already has an appointment for this session"
+                    detail="無法重複預約同一門診"
                 )
             elif "Session is full" in error_msg:
                 raise HTTPException(

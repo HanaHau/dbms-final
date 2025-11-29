@@ -102,6 +102,25 @@
   margin-top: 2rem;
 }
 
+.session-category {
+  margin-bottom: 3rem;
+}
+
+.session-category:last-child {
+  margin-bottom: 0;
+}
+
+.session-category h2 {
+  margin-bottom: 1rem;
+  color: #495057;
+  font-weight: 600;
+  font-size: 1.25rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 2px solid #e9ecef;
+  display: block;
+  width: 100%;
+}
+
 .sessions-list h2 {
   margin-bottom: 1rem;
   color: #495057;

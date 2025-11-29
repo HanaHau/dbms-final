@@ -287,6 +287,9 @@ class SessionRepository:
                 conditions = []
                 params = []
 
+                # 只顯示正常狀態的門診（status = 1），不顯示已停診的門診
+                conditions.append("cs.status = 1")
+
                 if dept_id is not None:
                     conditions.append("pr.dept_id = %s")
                     params.append(dept_id)
@@ -299,7 +302,7 @@ class SessionRepository:
                     conditions.append("cs.date = %s")
                     params.append(date_)
 
-                where_clause = " AND ".join(conditions) if conditions else "1=1"
+                where_clause = " AND ".join(conditions)
 
                 cur.execute(
                     f"""

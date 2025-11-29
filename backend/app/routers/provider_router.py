@@ -249,6 +249,12 @@ def api_search_diseases(query: Optional[str] = Query(None), limit: int = Query(5
     return service.search_diseases(query, limit)
 
 
+@router.get("/medications")
+def api_search_medications(query: Optional[str] = Query(None), limit: int = Query(50, le=200)):
+    """搜尋藥品（med_id 和 name）"""
+    return service.search_medications(query, limit)
+
+
 @router.get("/{provider_id}/encounters/{enct_id}/prescription")
 def api_get_rx(provider_id: int, enct_id: int):
     """取得處方箋，如果不存在則返回 404"""

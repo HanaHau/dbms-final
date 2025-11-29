@@ -18,6 +18,7 @@ export const ProviderEncounter: React.FC = () => {
   const [payment, setPayment] = useState<Payment | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'encounter' | 'diagnosis' | 'prescription' | 'lab' | 'payment'>('encounter');
+  const [sessionId, setSessionId] = useState<number | null>(null);
   
   // 病人歷史記錄
   const [patientHistory, setPatientHistory] = useState<{
@@ -32,6 +33,12 @@ export const ProviderEncounter: React.FC = () => {
   const [showDiseaseDropdown, setShowDiseaseDropdown] = useState(false);
   const [selectedDisease, setSelectedDisease] = useState<{ code_icd: string; description: string } | null>(null);
   
+  // 藥品搜尋
+  const [medicationSearchQuery, setMedicationSearchQuery] = useState('');
+  const [medicationOptions, setMedicationOptions] = useState<Array<{ med_id: number; name: string; spec?: string; unit?: string }>>([]);
+  const [showMedicationDropdown, setShowMedicationDropdown] = useState(false);
+  const [selectedMedication, setSelectedMedication] = useState<{ med_id: number; name: string; spec?: string; unit?: string } | null>(null);
+  
   // 表單狀態
   const [encounterForm, setEncounterForm] = useState({
     status: 1,
@@ -42,7 +49,15 @@ export const ProviderEncounter: React.FC = () => {
   });
   const [newDiagnosis, setNewDiagnosis] = useState({ code_icd: '', is_primary: false });
   const [prescriptionForm, setPrescriptionForm] = useState({
-    items: [{ med_id: 1, dosage: '', frequency: '', days: 7, quantity: 1 }],
+    items: [] as Array<{ med_id: number; med_name?: string; dosage: string; frequency: string; days: number; quantity: number }>,
+  });
+  const [currentPrescriptionItem, setCurrentPrescriptionItem] = useState({
+    med_id: 0,
+    med_name: '',
+    dosage: '',
+    frequency: '',
+    days: 0,
+    quantity: 0,
   });
   const [labForm, setLabForm] = useState({
     loinc_code: '',
@@ -73,10 +88,13 @@ export const ProviderEncounter: React.FC = () => {
     let patientId: number | null = null;
     
     try {
-      // 先獲取 appointment 的 patient_id（無論 encounter 是否存在）
+      // 先獲取 appointment 的 patient_id 和 session_id（無論 encounter 是否存在）
       try {
         const apptInfo = await providerApi.getAppointmentPatientId(user.user_id, parseInt(apptId));
         patientId = apptInfo.patient_id;
+        if (apptInfo.session_id) {
+          setSessionId(apptInfo.session_id);
+        }
       } catch (err) {
         console.error('獲取掛號資訊失敗:', err);
       }
@@ -102,6 +120,20 @@ export const ProviderEncounter: React.FC = () => {
         ]);
         setDiagnoses(diags);
         setPrescription(presc);
+        if (presc) {
+          // 如果處方已存在，載入處方項目（presc.items 應該包含 med_name）
+          setPrescriptionForm({ items: (presc.items || []).map((item: any) => ({
+            med_id: item.med_id,
+            med_name: item.med_name || '',
+            dosage: item.dosage || '',
+            frequency: item.frequency || '',
+            days: item.days || 0,
+            quantity: item.quantity || 0,
+          })) });
+        } else {
+          // 如果處方不存在，重置為空
+          setPrescriptionForm({ items: [] });
+        }
         setLabResults(labs);
         setPayment(pay);
         if (pay) {
@@ -148,6 +180,15 @@ export const ProviderEncounter: React.FC = () => {
         });
         setDiagnoses([]);
         setPrescription(null);
+        setPrescriptionForm({ items: [] });
+        setCurrentPrescriptionItem({
+          med_id: 0,
+          med_name: '',
+          dosage: '',
+          frequency: '',
+          days: 0,
+          quantity: 0,
+        });
         setLabResults([]);
         setPayment(null);
         
@@ -186,6 +227,33 @@ export const ProviderEncounter: React.FC = () => {
     }
   };
 
+  const searchMedications = async (query: string) => {
+    if (query.length < 1) {
+      setMedicationOptions([]);
+      setShowMedicationDropdown(false);
+      setSelectedMedication(null);
+      return;
+    }
+    try {
+      const results = await providerApi.searchMedications(query, 50);
+      setMedicationOptions(results);
+      setShowMedicationDropdown(true);
+    } catch (err) {
+      console.error('搜尋藥品失敗:', err);
+    }
+  };
+
+  const handleSelectMedication = (medication: { med_id: number; name: string; spec?: string; unit?: string }) => {
+    setSelectedMedication(medication);
+    setCurrentPrescriptionItem({ 
+      ...currentPrescriptionItem, 
+      med_id: medication.med_id,
+      med_name: medication.name
+    });
+    setMedicationSearchQuery(medication.name);
+    setShowMedicationDropdown(false);
+  };
+
   // 選擇疾病
   const handleSelectDisease = (disease: { code_icd: string; description: string }) => {
     setSelectedDisease(disease);
@@ -216,6 +284,13 @@ export const ProviderEncounter: React.FC = () => {
       return;
     }
     try {
+      console.log('新增診斷:', {
+        providerId: user.user_id,
+        enctId: encounter.enct_id,
+        codeIcd: newDiagnosis.code_icd,
+        isPrimary: newDiagnosis.is_primary
+      });
+      
       await providerApi.upsertDiagnosis(
         user.user_id,
         encounter.enct_id,
@@ -229,7 +304,10 @@ export const ProviderEncounter: React.FC = () => {
       setDiseaseOptions([]);
       loadData();
     } catch (err: any) {
-      alert(err.response?.data?.detail || '新增失敗');
+      console.error('新增診斷錯誤:', err);
+      console.error('錯誤詳情:', err.response?.data);
+      const errorDetail = err.response?.data?.detail || err.message || '新增失敗';
+      alert(`新增診斷失敗：${errorDetail}`);
     }
   };
 
@@ -244,23 +322,105 @@ export const ProviderEncounter: React.FC = () => {
     }
   };
 
-  const handleSavePrescription = async () => {
+  const handleAddPrescriptionItem = async () => {
     if (!user) return;
     if (!encounter) {
       alert('請先建立就診記錄');
       setActiveTab('encounter');
       return;
     }
+    if (!currentPrescriptionItem.med_id) {
+      alert('請選擇藥品');
+      return;
+    }
     try {
+      // 將當前項目添加到列表（只傳送 med_id 給後端，但保留 med_name 用於顯示）
+      const newItems = [...prescriptionForm.items, { ...currentPrescriptionItem }];
+      
       // 處方一旦開立即無法更改，所以 status 固定為 2（定稿）
       await providerApi.upsertPrescription(user.user_id, encounter.enct_id, {
         status: 2,
-        items: prescriptionForm.items,
+        items: newItems.map(item => ({
+          med_id: item.med_id,
+          dosage: item.dosage,
+          frequency: item.frequency,
+          days: item.days,
+          quantity: item.quantity,
+        })),
+      });
+      
+      // 更新本地狀態
+      setPrescriptionForm({ items: newItems });
+      
+      // 重置當前表單
+      setCurrentPrescriptionItem({
+        med_id: 0,
+        med_name: '',
+        dosage: '',
+        frequency: '',
+        days: 0,
+        quantity: 0,
+      });
+      setMedicationSearchQuery('');
+      setSelectedMedication(null);
+      setMedicationOptions([]);
+      
+      alert('新增處方項目成功！');
+      loadData();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || '新增失敗');
+    }
+  };
+
+  const handleRemovePrescriptionItem = async (index: number) => {
+    if (!user || !encounter) return;
+    if (!confirm('確定要刪除此處方項目嗎？')) return;
+    
+    try {
+      const newItems = prescriptionForm.items.filter((_, i) => i !== index);
+      
+      await providerApi.upsertPrescription(user.user_id, encounter.enct_id, {
+        status: 2,
+        items: newItems.map(item => ({
+          med_id: item.med_id,
+          dosage: item.dosage,
+          frequency: item.frequency,
+          days: item.days,
+          quantity: item.quantity,
+        })),
+      });
+      
+      setPrescriptionForm({ items: newItems });
+      alert('刪除處方項目成功！');
+      loadData();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || '刪除失敗');
+    }
+  };
+
+  const handleFinalizePrescription = async () => {
+    if (!user || !encounter) return;
+    if (prescriptionForm.items.length === 0) {
+      alert('請至少新增一個處方項目');
+      return;
+    }
+    if (!confirm('確定要開立處方嗎？開立後將無法修改。')) return;
+    
+    try {
+      await providerApi.upsertPrescription(user.user_id, encounter.enct_id, {
+        status: 2,
+        items: prescriptionForm.items.map(item => ({
+          med_id: item.med_id,
+          dosage: item.dosage,
+          frequency: item.frequency,
+          days: item.days,
+          quantity: item.quantity,
+        })),
       });
       alert('開立處方成功！');
       loadData();
     } catch (err: any) {
-      alert(err.response?.data?.detail || '儲存失敗');
+      alert(err.response?.data?.detail || '開立失敗');
     }
   };
 
@@ -322,8 +482,11 @@ export const ProviderEncounter: React.FC = () => {
   return (
     <Layout>
       <div className="provider-encounter">
-        <button className="btn btn-secondary" onClick={() => navigate('/provider/sessions')}>
-          ← 返回門診時段
+        <button 
+          className="btn btn-secondary" 
+          onClick={() => navigate(-1)}
+        >
+          ← 返回預約管理
         </button>
         <h1>{encounter ? `就診記錄 - Encounter #${encounter.enct_id}` : '建立就診記錄'}</h1>
         
@@ -429,7 +592,7 @@ export const ProviderEncounter: React.FC = () => {
                   <div className="disease-search-container">
                     <input
                       type="text"
-                      placeholder="搜尋 ICD 代碼或疾病名稱..."
+                      placeholder="搜尋 ICD 代碼..."
                       value={diseaseSearchQuery}
                       onChange={(e) => {
                         const query = e.target.value;
@@ -473,7 +636,6 @@ export const ProviderEncounter: React.FC = () => {
                                 onMouseEnter={() => setSelectedDisease(disease)}
                               >
                                 <div className="disease-code">{disease.code_icd}</div>
-                                <div className="disease-description">{disease.description}</div>
                               </div>
                             ))}
                           </>
@@ -486,7 +648,7 @@ export const ProviderEncounter: React.FC = () => {
                     )}
                     {selectedDisease && (
                       <div className="selected-disease-info">
-                        已選擇：<strong>{selectedDisease.code_icd}</strong> - {selectedDisease.description}
+                        已選擇：<strong>{selectedDisease.code_icd}</strong>
                       </div>
                     )}
                   </div>
@@ -558,7 +720,7 @@ export const ProviderEncounter: React.FC = () => {
                     <table className="prescription-table">
                       <thead>
                         <tr>
-                          <th>藥品 ID</th>
+                          <th>藥品名稱</th>
                           <th>劑量</th>
                           <th>頻率</th>
                           <th>天數</th>
@@ -568,7 +730,7 @@ export const ProviderEncounter: React.FC = () => {
                       <tbody>
                         {prescription.items.map((item: any, idx: number) => (
                           <tr key={idx}>
-                            <td>{item.med_id}</td>
+                            <td>{item.med_name || item.med_id}</td>
                             <td>{item.dosage || '-'}</td>
                             <td>{item.frequency || '-'}</td>
                             <td>{item.days}</td>
@@ -583,91 +745,173 @@ export const ProviderEncounter: React.FC = () => {
               {!prescription && (
                 <>
                   <div className="prescription-items">
-                    <h3>處方項目</h3>
-                    {prescriptionForm.items.map((item, idx) => (
-                      <div key={idx} className="prescription-item-form">
-                        <input
-                          type="number"
-                          placeholder="藥品 ID"
-                          value={item.med_id || ''}
-                          onChange={(e) => {
-                            const items = [...prescriptionForm.items];
-                            const val = e.target.value;
-                            const num = val === '' ? 0 : parseInt(val, 10);
-                            items[idx].med_id = isNaN(num) ? 0 : num;
-                            setPrescriptionForm({ ...prescriptionForm, items });
-                          }}
-                        />
+                    <h3>新增處方項目</h3>
+                    <div className="prescription-item-form">
+                      <div className="medication-search-container">
+                        <label>藥品名稱</label>
                         <input
                           type="text"
-                          placeholder="劑量"
-                          value={item.dosage}
+                          placeholder="搜尋藥品名稱..."
+                          value={medicationSearchQuery}
                           onChange={(e) => {
-                            const items = [...prescriptionForm.items];
-                            items[idx].dosage = e.target.value;
-                            setPrescriptionForm({ ...prescriptionForm, items });
+                            const query = e.target.value;
+                            setMedicationSearchQuery(query);
+                            if (query.length > 0) {
+                              searchMedications(query);
+                            } else {
+                              setMedicationOptions([]);
+                              setShowMedicationDropdown(false);
+                              setSelectedMedication(null);
+                              setCurrentPrescriptionItem({ ...currentPrescriptionItem, med_id: 0, med_name: '' });
+                            }
+                          }}
+                          onFocus={() => {
+                            if (medicationSearchQuery.length > 0 && medicationOptions.length > 0) {
+                              setShowMedicationDropdown(true);
+                            }
+                          }}
+                          onBlur={() => {
+                            setTimeout(() => setShowMedicationDropdown(false), 200);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Escape') {
+                              setShowMedicationDropdown(false);
+                            }
                           }}
                         />
-                        <input
-                          type="text"
-                          placeholder="頻率"
-                          value={item.frequency}
-                          onChange={(e) => {
-                            const items = [...prescriptionForm.items];
-                            items[idx].frequency = e.target.value;
-                            setPrescriptionForm({ ...prescriptionForm, items });
-                          }}
-                        />
-                        <input
-                          type="number"
-                          placeholder="天數"
-                          value={item.days || ''}
-                          onChange={(e) => {
-                            const items = [...prescriptionForm.items];
-                            const val = e.target.value;
-                            const num = val === '' ? 0 : parseInt(val, 10);
-                            items[idx].days = isNaN(num) ? 0 : num;
-                            setPrescriptionForm({ ...prescriptionForm, items });
-                          }}
-                        />
-                        <input
-                          type="number"
-                          placeholder="數量"
-                          value={item.quantity || ''}
-                          onChange={(e) => {
-                            const items = [...prescriptionForm.items];
-                            const val = e.target.value;
-                            const num = val === '' ? 0 : parseFloat(val);
-                            items[idx].quantity = isNaN(num) ? 0 : num;
-                            setPrescriptionForm({ ...prescriptionForm, items });
-                          }}
-                        />
+                        {showMedicationDropdown && (
+                          <div className="medication-dropdown">
+                            {medicationOptions.length > 0 ? (
+                              <>
+                                <div className="medication-dropdown-header">
+                                  找到 {medicationOptions.length} 個結果
+                                </div>
+                                {medicationOptions.map((medication) => (
+                                  <div
+                                    key={medication.med_id}
+                                    className={`medication-option ${selectedMedication?.med_id === medication.med_id ? 'selected' : ''}`}
+                                    onClick={() => handleSelectMedication(medication)}
+                                    onMouseEnter={() => setSelectedMedication(medication)}
+                                  >
+                                    <div className="medication-name">{medication.name}</div>
+                                  </div>
+                                ))}
+                              </>
+                            ) : medicationSearchQuery.length > 0 ? (
+                              <div className="medication-option no-results">
+                                沒有找到相關藥品
+                              </div>
+                            ) : null}
+                          </div>
+                        )}
+                        {selectedMedication && (
+                          <div className="selected-medication-info">
+                            已選擇：<strong>{selectedMedication.name}</strong>
+                          </div>
+                        )}
+                      </div>
+                      <input
+                        type="text"
+                        placeholder="劑量"
+                        value={currentPrescriptionItem.dosage}
+                        onChange={(e) => setCurrentPrescriptionItem({ ...currentPrescriptionItem, dosage: e.target.value })}
+                      />
+                      <input
+                        type="text"
+                        placeholder="頻率"
+                        value={currentPrescriptionItem.frequency}
+                        onChange={(e) => setCurrentPrescriptionItem({ ...currentPrescriptionItem, frequency: e.target.value })}
+                      />
+                      <input
+                        type="number"
+                        placeholder="天數"
+                        value={currentPrescriptionItem.days || ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          const num = val === '' ? 0 : parseInt(val, 10);
+                          setCurrentPrescriptionItem({ ...currentPrescriptionItem, days: isNaN(num) ? 0 : num });
+                        }}
+                      />
+                      <input
+                        type="number"
+                        placeholder="數量"
+                        value={currentPrescriptionItem.quantity || ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          const num = val === '' ? 0 : parseFloat(val);
+                          setCurrentPrescriptionItem({ ...currentPrescriptionItem, quantity: isNaN(num) ? 0 : num });
+                        }}
+                      />
+                      <div className="prescription-item-actions">
                         <button
                           className="btn-small btn-danger"
                           onClick={() => {
-                            const items = prescriptionForm.items.filter((_, i) => i !== idx);
-                            setPrescriptionForm({ ...prescriptionForm, items });
+                            setCurrentPrescriptionItem({
+                              med_id: 0,
+                              med_name: '',
+                              dosage: '',
+                              frequency: '',
+                              days: 0,
+                              quantity: 0,
+                            });
+                            setMedicationSearchQuery('');
+                            setSelectedMedication(null);
                           }}
                         >
-                          刪除
+                          清除
+                        </button>
+                        <button
+                          className="btn btn-primary"
+                          onClick={handleAddPrescriptionItem}
+                          disabled={!currentPrescriptionItem.med_id || !currentPrescriptionItem.med_name}
+                        >
+                          新增處方項目
                         </button>
                       </div>
-                    ))}
-                    <button
-                      className="btn btn-secondary"
-                      onClick={() => {
-                        setPrescriptionForm({
-                          ...prescriptionForm,
-                          items: [...prescriptionForm.items, { med_id: 1, dosage: '', frequency: '', days: 7, quantity: 1 }],
-                        });
-                      }}
-                    >
-                      新增項目
-                    </button>
+                    </div>
                   </div>
-                  <button className="btn btn-primary" onClick={handleSavePrescription}>
-                    開立處方
-                  </button>
+                  
+                  {prescriptionForm.items.length > 0 && (
+                    <div className="prescription-items-list">
+                      <h3>已新增的處方項目 ({prescriptionForm.items.length})</h3>
+                      <table className="prescription-items-table">
+                        <thead>
+                          <tr>
+                            <th>藥品名稱</th>
+                            <th>劑量</th>
+                            <th>頻率</th>
+                            <th>天數</th>
+                            <th>數量</th>
+                            <th>操作</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {prescriptionForm.items.map((item, idx) => (
+                            <tr key={idx}>
+                              <td>{item.med_name || item.med_id}</td>
+                              <td>{item.dosage || '-'}</td>
+                              <td>{item.frequency || '-'}</td>
+                              <td>{item.days}</td>
+                              <td>{item.quantity}</td>
+                              <td>
+                                <button
+                                  className="btn-small btn-danger"
+                                  onClick={() => handleRemovePrescriptionItem(idx)}
+                                >
+                                  刪除
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <div className="prescription-finalize-actions">
+                        <button className="btn btn-primary" onClick={handleFinalizePrescription}>
+                          開立處方
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
             </div>

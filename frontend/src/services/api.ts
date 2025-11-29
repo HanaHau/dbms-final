@@ -378,6 +378,15 @@ export const providerApi = {
     return response.data;
   },
 
+  // 搜尋藥品
+  searchMedications: async (query?: string, limit: number = 50) => {
+    const params = new URLSearchParams();
+    if (query) params.append('query', query);
+    params.append('limit', limit.toString());
+    const response = await api.get(`/provider/medications?${params.toString()}`);
+    return response.data;
+  },
+
   // 取得掛號對應的病人 ID
   getAppointmentPatientId: async (providerId: number, apptId: number) => {
     const response = await api.get(

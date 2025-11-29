@@ -5,6 +5,32 @@ from ..pg_base import get_pg_conn
 
 class DiagnosisRepository:
     """處理診斷（DIAGNOSIS）相關的資料庫操作"""
+    
+    # 緩存 DISEASE 表的描述欄位名稱
+    _disease_desc_field = None
+    
+    @staticmethod
+    def _get_disease_desc_field(conn):
+        """獲取 DISEASE 表的描述欄位名稱（緩存結果）"""
+        if DiagnosisRepository._disease_desc_field is not None:
+            return DiagnosisRepository._disease_desc_field
+        
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'disease' 
+                AND column_name IN ('description', 'name', 'disease_name')
+                LIMIT 1;
+            """)
+            row = cur.fetchone()
+            if row:
+                DiagnosisRepository._disease_desc_field = row[0]
+            else:
+                # 如果沒有描述欄位，使用 code_icd
+                DiagnosisRepository._disease_desc_field = 'code_icd'
+        
+        return DiagnosisRepository._disease_desc_field
 
     @staticmethod
     def list_diagnoses_for_encounter(enct_id):
@@ -14,12 +40,14 @@ class DiagnosisRepository:
         conn = get_pg_conn()
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                desc_field = DiagnosisRepository._get_disease_desc_field(conn)
+                
                 cur.execute(
-                    """
+                    f"""
                     SELECT
                         d.enct_id,
                         d.code_icd,
-                        dis.description,
+                        dis.{desc_field} AS description,
                         d.is_primary
                     FROM DIAGNOSIS d
                     JOIN DISEASE dis ON d.code_icd = dis.code_icd
@@ -41,12 +69,14 @@ class DiagnosisRepository:
         conn = get_pg_conn()
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                desc_field = DiagnosisRepository._get_disease_desc_field(conn)
+                
                 cur.execute(
-                    """
+                    f"""
                     SELECT
                         d.enct_id,
                         d.code_icd,
-                        dis.description,
+                        dis.{desc_field} AS description,
                         d.is_primary,
                         e.encounter_at,
                         e.provider_id,
@@ -74,9 +104,31 @@ class DiagnosisRepository:
         """
         新增或更新診斷（以 enct_id + code_icd 為 key）。
         """
+        import psycopg2
         conn = get_pg_conn()
         try:
             with conn.cursor() as cur:
+                # 先驗證 enct_id 是否存在
+                cur.execute(
+                    """
+                    SELECT enct_id FROM ENCOUNTER WHERE enct_id = %s;
+                    """,
+                    (enct_id,),
+                )
+                if cur.fetchone() is None:
+                    raise Exception(f"Encounter with enct_id={enct_id} does not exist")
+                
+                # 驗證 code_icd 是否存在於 DISEASE 表
+                cur.execute(
+                    """
+                    SELECT code_icd FROM DISEASE WHERE code_icd = %s;
+                    """,
+                    (code_icd,),
+                )
+                if cur.fetchone() is None:
+                    raise Exception(f"Disease with code_icd='{code_icd}' does not exist in DISEASE table")
+                
+                # 插入或更新診斷
                 cur.execute(
                     """
                     INSERT INTO DIAGNOSIS (enct_id, code_icd, is_primary)
@@ -87,6 +139,13 @@ class DiagnosisRepository:
                     (enct_id, code_icd, is_primary),
                 )
                 conn.commit()
+        except psycopg2.IntegrityError as e:
+            conn.rollback()
+            # 重新拋出 IntegrityError，讓 service 層處理
+            raise e
+        except Exception as e:
+            conn.rollback()
+            raise e
         finally:
             conn.close()
 
@@ -139,26 +198,42 @@ class DiagnosisRepository:
     def search_diseases(query: str = None, limit: int = 50):
         """
         搜尋疾病（ICD 代碼和描述）。
-        如果提供 query，則搜尋 code_icd 或 description 包含該字串的疾病。
+        如果提供 query，則搜尋 code_icd 或描述欄位包含該字串的疾病。
         """
         conn = get_pg_conn()
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                desc_field = DiagnosisRepository._get_disease_desc_field(conn)
+                
                 if query:
-                    cur.execute(
-                        """
-                        SELECT code_icd, description
-                        FROM DISEASE
-                        WHERE code_icd ILIKE %s OR description ILIKE %s
-                        ORDER BY code_icd
-                        LIMIT %s;
-                        """,
-                        (f"%{query}%", f"%{query}%", limit),
-                    )
+                    if desc_field == 'code_icd':
+                        # 只有 code_icd 欄位，只搜尋 code_icd
+                        cur.execute(
+                            """
+                            SELECT code_icd, code_icd AS description
+                            FROM DISEASE
+                            WHERE code_icd ILIKE %s
+                            ORDER BY code_icd
+                            LIMIT %s;
+                            """,
+                            (f"%{query}%", limit),
+                        )
+                    else:
+                        # 有描述欄位，可以搜尋 code_icd 或描述
+                        cur.execute(
+                            f"""
+                            SELECT code_icd, {desc_field} AS description
+                            FROM DISEASE
+                            WHERE code_icd ILIKE %s OR {desc_field} ILIKE %s
+                            ORDER BY code_icd
+                            LIMIT %s;
+                            """,
+                            (f"%{query}%", f"%{query}%", limit),
+                        )
                 else:
                     cur.execute(
-                        """
-                        SELECT code_icd, description
+                        f"""
+                        SELECT code_icd, {desc_field} AS description
                         FROM DISEASE
                         ORDER BY code_icd
                         LIMIT %s;
