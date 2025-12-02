@@ -157,7 +157,11 @@ class AppointmentRepository:
                         LIMIT 1
                     ) AS ash_latest ON TRUE
                     WHERE a.patient_id = %s
-                    ORDER BY cs.date DESC, cs.start_time DESC;
+                    -- 依照「最近一次狀態異動時間」排序，若無狀態歷史則依門診日期時間
+                    ORDER BY 
+                        ash_latest.changed_at DESC NULLS LAST,
+                        cs.date DESC,
+                        cs.start_time DESC;
                     """,
                     (patient_id,),
                 )
@@ -175,30 +179,44 @@ class AppointmentRepository:
         """
         conn = get_pg_conn()
         try:
+            conn.autocommit = False
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # 驗證 appt_id 和 patient_id 是否匹配
+                # 驗證 appt_id 和 patient_id 是否匹配，並獲取對應的 provider_id
                 cur.execute(
                     """
-                    SELECT appt_id, patient_id
-                    FROM APPOINTMENT
-                    WHERE appt_id = %s AND patient_id = %s;
+                    SELECT a.appt_id, a.patient_id, cs.provider_id
+                    FROM APPOINTMENT a
+                    JOIN CLINIC_SESSION cs ON a.session_id = cs.session_id
+                    WHERE a.appt_id = %s AND a.patient_id = %s;
                     """,
                     (appt_id, patient_id),
                 )
                 row = cur.fetchone()
                 if row is None:
+                    conn.rollback()
                     return None
+
+                # 獲取 provider_id（changed_by 必須是 provider_id，因為外鍵約束）
+                provider_id = row["provider_id"]
 
             # 使用統一的狀態更新邏輯
             from_status = AppointmentRepository._get_latest_status(conn, appt_id)
+            # 如果沒有狀態歷史，假設初始狀態為 1（已預約）
+            if from_status is None:
+                from_status = 1
             AppointmentRepository._insert_status_history(
-                conn, appt_id, from_status, new_status, patient_id
+                conn, appt_id, from_status, new_status, provider_id
             )
 
             conn.commit()
             return {"appt_id": appt_id, "status_updated": True}
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            raise e
         finally:
-            conn.close()
+            if conn:
+                conn.close()
 
     @staticmethod
     def create_appointment(patient_id, session_id):
@@ -215,16 +233,29 @@ class AppointmentRepository:
             # 確保使用事務
             conn.autocommit = False
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # 檢查是否已在該 session 重複掛號
+                # 檢查是否已在該 session 有掛號記錄（包括已取消的）
                 cur.execute(
                     """
-                    SELECT appt_id
-                    FROM APPOINTMENT
-                    WHERE patient_id = %s AND session_id = %s;
+                    SELECT a.appt_id, 
+                           COALESCE(ash_latest.to_status, 1) AS current_status
+                    FROM APPOINTMENT a
+                    LEFT JOIN LATERAL (
+                        SELECT ash.to_status
+                        FROM APPOINTMENT_STATUS_HISTORY ash
+                        WHERE ash.appt_id = a.appt_id
+                        ORDER BY ash.changed_at DESC
+                        LIMIT 1
+                    ) AS ash_latest ON TRUE
+                    WHERE a.patient_id = %s 
+                      AND a.session_id = %s;
                     """,
                     (patient_id, session_id),
                 )
-                if cur.fetchone() is not None:
+                existing_appt = cur.fetchone()
+                
+                # 如果存在非取消狀態的掛號，則不允許重複預約
+                # 取消狀態代碼：4 = cancelled
+                if existing_appt is not None and existing_appt["current_status"] != 4:
                     conn.rollback()
                     raise Exception("無法重複預約同一門診")
 
@@ -271,12 +302,20 @@ class AppointmentRepository:
                     conn.rollback()
                     raise Exception("Session has ended, cannot book appointment")
 
-                # 計算已預約人數（在鎖定 session 後）
+                # 計算已預約人數（在鎖定 session 後，排除已取消的掛號；4 = cancelled）
                 cur.execute(
                     """
                     SELECT COUNT(*) AS booked_count
-                    FROM APPOINTMENT
-                    WHERE session_id = %s;
+                    FROM APPOINTMENT a
+                    LEFT JOIN LATERAL (
+                        SELECT ash.to_status
+                        FROM APPOINTMENT_STATUS_HISTORY ash
+                        WHERE ash.appt_id = a.appt_id
+                        ORDER BY ash.changed_at DESC
+                        LIMIT 1
+                    ) AS ash_latest ON TRUE
+                    WHERE a.session_id = %s
+                      AND COALESCE(ash_latest.to_status, 1) != 4;
                     """,
                     (session_id,),
                 )
@@ -289,30 +328,56 @@ class AppointmentRepository:
 
                 slot_seq = booked_count + 1
 
-                # 插入 APPOINTMENT - 使用自動生成的 appt_id
-                cur.execute(
-                    """
-                    INSERT INTO APPOINTMENT (patient_id, session_id, slot_seq)
-                    VALUES (%s, %s, %s)
-                    RETURNING appt_id, patient_id, session_id, slot_seq;
-                    """,
-                    (patient_id, session_id, slot_seq),
-                )
-                appt = cur.fetchone()
-                new_appt_id = appt["appt_id"]
-
-                # 寫入 APPOINTMENT_STATUS_HISTORY（初始狀態，假設狀態 1 為「已預約」）
-                # 注意：changed_by 必須是 provider_id，因為外鍵約束指向 provider 表
-                # 雖然是病人建立的，但系統層面記錄為 provider（因為外鍵約束限制）
-                cur.execute(
-                    """
-                    INSERT INTO APPOINTMENT_STATUS_HISTORY (
-                        appt_id, from_status, to_status, changed_by, changed_at
+                # 如果存在已取消的掛號（4 = cancelled），更新該記錄；否則創建新記錄
+                if existing_appt is not None and existing_appt["current_status"] == 4:
+                    # 更新已取消的掛號記錄
+                    existing_appt_id = existing_appt["appt_id"]
+                    cur.execute(
+                        """
+                        UPDATE APPOINTMENT
+                        SET slot_seq = %s
+                        WHERE appt_id = %s
+                        RETURNING appt_id, patient_id, session_id, slot_seq;
+                        """,
+                        (slot_seq, existing_appt_id),
                     )
-                    VALUES (%s, NULL, 1, %s, NOW());
-                    """,
-                    (new_appt_id, provider_id),
-                )
+                    appt = cur.fetchone()
+                    appt_id = existing_appt_id
+                    
+                    # 寫入狀態歷史：從 4（已取消）變更為 1（已預約）
+                    cur.execute(
+                        """
+                        INSERT INTO APPOINTMENT_STATUS_HISTORY (
+                            appt_id, from_status, to_status, changed_by, changed_at
+                        )
+                        VALUES (%s, 4, 1, %s, NOW());
+                        """,
+                        (appt_id, provider_id),
+                    )
+                else:
+                    # 插入新的 APPOINTMENT 記錄
+                    cur.execute(
+                        """
+                        INSERT INTO APPOINTMENT (patient_id, session_id, slot_seq)
+                        VALUES (%s, %s, %s)
+                        RETURNING appt_id, patient_id, session_id, slot_seq;
+                        """,
+                        (patient_id, session_id, slot_seq),
+                    )
+                    appt = cur.fetchone()
+                    appt_id = appt["appt_id"]
+
+                    # 寫入 APPOINTMENT_STATUS_HISTORY（初始狀態，假設狀態 1 為「已預約」）
+                    # 注意：changed_by 必須是 provider_id，因為外鍵約束指向 provider 表
+                    cur.execute(
+                        """
+                        INSERT INTO APPOINTMENT_STATUS_HISTORY (
+                            appt_id, from_status, to_status, changed_by, changed_at
+                        )
+                        VALUES (%s, NULL, 1, %s, NOW());
+                        """,
+                        (appt_id, provider_id),
+                    )
 
                 conn.commit()
                 return appt
@@ -332,35 +397,67 @@ class AppointmentRepository:
         """
         取消掛號：
         - 驗證 patient_id 是否匹配
-        - 更新狀態為「已取消」（假設狀態 0 為「已取消」）
+        - 更新狀態為「已取消」（狀態 4 = cancelled）
         - 寫入 APPOINTMENT_STATUS_HISTORY
         """
         conn = get_pg_conn()
         try:
+            conn.autocommit = False
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # 驗證 appt_id 和 patient_id 是否匹配
+                # 驗證 appt_id 和 patient_id 是否匹配，並獲取對應的 provider_id
                 cur.execute(
                     """
-                    SELECT appt_id, patient_id
-                    FROM APPOINTMENT
-                    WHERE appt_id = %s AND patient_id = %s;
+                    SELECT a.appt_id, a.patient_id, cs.provider_id
+                    FROM APPOINTMENT a
+                    JOIN CLINIC_SESSION cs ON a.session_id = cs.session_id
+                    WHERE a.appt_id = %s AND a.patient_id = %s;
                     """,
                     (appt_id, patient_id),
                 )
                 row = cur.fetchone()
                 if row is None:
+                    conn.rollback()
                     return None
+
+                # 獲取 provider_id（changed_by 必須是 provider_id，因為外鍵約束）
+                provider_id = row["provider_id"]
 
                 # 使用統一的狀態更新邏輯
                 from_status = AppointmentRepository._get_latest_status(conn, appt_id)
+                # 如果沒有狀態歷史，假設初始狀態為 1（已預約）
+                if from_status is None:
+                    from_status = 1
+                
+                # 寫入狀態歷史：從當前狀態變更為 4（已取消）
                 AppointmentRepository._insert_status_history(
-                    conn, appt_id, from_status, 0, patient_id
+                    conn, appt_id, from_status, 4, provider_id
                 )
+                
+                # 驗證狀態歷史是否正確寫入（在同一個事務中查詢）
+                cur.execute(
+                    """
+                    SELECT to_status
+                    FROM APPOINTMENT_STATUS_HISTORY
+                    WHERE appt_id = %s
+                    ORDER BY changed_at DESC
+                    LIMIT 1;
+                    """,
+                    (appt_id,),
+                )
+                verify_row = cur.fetchone()
+                if verify_row is None or verify_row["to_status"] != 4:
+                    conn.rollback()
+                    raise Exception(f"Failed to update status: expected 4, got {verify_row['to_status'] if verify_row else 'None'}")
 
                 conn.commit()
-                return {"appt_id": appt_id, "cancelled": True}
+                return {"appt_id": appt_id, "cancelled": True, "status": 4}
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            raise e
         finally:
-            conn.close()
+            if conn:
+                conn.close()
 
     @staticmethod
     def modify_appointment(appt_id, old_session_id, new_session_id):
@@ -440,9 +537,10 @@ class AppointmentRepository:
                 updated_appt = cur.fetchone()
 
                 # 使用統一的狀態更新邏輯
+                # 修改掛號不改變狀態，只記錄一次狀態歷史（from_status -> from_status）
                 from_status = AppointmentRepository._get_latest_status(conn, appt_id)
                 AppointmentRepository._insert_status_history(
-                    conn, appt_id, from_status, 2, appt_row["patient_id"]
+                    conn, appt_id, from_status, from_status, appt_row["patient_id"]
                 )
 
                 conn.commit()

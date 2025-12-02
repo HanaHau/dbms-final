@@ -8,6 +8,7 @@ from .diagnosis_repo import DiagnosisRepository
 from .prescription_repo import PrescriptionRepository
 from .lab_result_repo import LabResultRepository
 from .payment_repo import PaymentRepository
+from .department_repo import DepartmentRepository
 
 __all__ = [
     "PatientRepository",
@@ -19,5 +20,6 @@ __all__ = [
     "PrescriptionRepository",
     "LabResultRepository",
     "PaymentRepository",
+    "DepartmentRepository",
 ]
 

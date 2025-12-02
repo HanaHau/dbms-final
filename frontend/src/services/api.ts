@@ -127,6 +127,35 @@ export const patientApi = {
     );
     return response.data;
   },
+
+  // 列出所有部門
+  listDepartments: async () => {
+    try {
+      const response = await api.get('/departments');
+      return response.data;
+    } catch (error: any) {
+      // 如果端點不存在，返回空陣列，讓前端使用預設列表
+      if (error.response?.status === 404) {
+        return [];
+      }
+      throw error;
+    }
+  },
+
+  // 根據名稱獲取部門
+  getDepartmentByName: async (name: string) => {
+    try {
+      const response = await api.get('/departments/by-name', {
+        params: { name },
+      });
+      return response.data;
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return null;
+      }
+      throw error;
+    }
+  },
 };
 
 // ==================== 醫師端 API ====================

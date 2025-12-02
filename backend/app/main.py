@@ -1,5 +1,5 @@
 # main.py
-from fastapi import FastAPI
+from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import os
 
@@ -40,3 +40,37 @@ app.include_router(patient_router, prefix="/patient", tags=["patient"])
 @app.get("/")
 def root():
     return {"message": "Welcome to Clinic Digital System API"}
+
+
+@app.get("/departments")
+def api_list_departments():
+    """
+    列出所有部門。
+    回傳格式：
+    [
+      { "dept_id": 1, "name": "內科", "location": "..." },
+      ...
+    ]
+    """
+    from .repositories import DepartmentRepository
+    repo = DepartmentRepository()
+    return repo.list_all_departments()
+
+
+@app.get("/departments/by-name")
+def api_get_department_by_name(name: str = Query(...)):
+    """
+    根據部門名稱取得部門資訊。
+    回傳格式：
+    { "dept_id": 1, "name": "內科", "location": "..." }
+    如果找不到則回傳 404。
+    """
+    from .repositories import DepartmentRepository
+    
+    repo = DepartmentRepository()
+    department = repo.get_department_by_name(name)
+    
+    if department is None:
+        raise HTTPException(status_code=404, detail="Department not found")
+    
+    return department

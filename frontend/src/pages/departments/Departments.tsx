@@ -1,29 +1,21 @@
-// 病人首頁 - 顯示所有科別（部門列表）
+// 部門首頁 - 顯示所有科別
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Layout } from '../../components/Layout';
 import { DepartmentSearchWrapper } from '../../components/DepartmentSearchWrapper';
 import { getDepartmentCategory } from '../../lib/departmentCategory';
 import { slugifyChinese } from '../../lib/slugify';
 import type { DepartmentForUI } from '../../components/DepartmentGrid';
 import { patientApi } from '../../services/api';
-import { useAuth } from '../../context/AuthContext';
-import './PatientHome.css';
+import './Departments.css';
 
-export const PatientHome: React.FC = () => {
-  const { user, userType } = useAuth();
-  const navigate = useNavigate();
+export const Departments: React.FC = () => {
   const [departments, setDepartments] = useState<DepartmentForUI[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (userType !== 'patient' || !user) {
-      navigate('/patient/login');
-      return;
-    }
     loadDepartments();
-  }, [user, userType, navigate]);
+  }, []);
 
   const loadDepartments = async () => {
     try {
@@ -57,9 +49,11 @@ export const PatientHome: React.FC = () => {
       // 嘗試從 API 獲取部門列表
       try {
         const data = await patientApi.listDepartments();
+        console.log('API 返回的部門數據:', data);
         
         // 如果 API 返回空陣列或無效數據，使用預設列表
         if (!data || !Array.isArray(data) || data.length === 0) {
+          console.warn('API 返回空數據，使用預設列表');
           throw new Error('API returned empty or invalid data');
         }
 
@@ -69,6 +63,7 @@ export const PatientHome: React.FC = () => {
           slug: slugifyChinese(dept.name),
           category: getDepartmentCategory(dept.name),
         }));
+        console.log('映射後的部門列表:', mappedDepartments);
         setDepartments(mappedDepartments);
       } catch (apiError) {
         // 如果 API 不存在或失敗，使用硬編碼的部門列表
@@ -81,6 +76,7 @@ export const PatientHome: React.FC = () => {
             category: getDepartmentCategory(name),
           })
         );
+        console.log('使用預設部門列表:', defaultDepartments);
         setDepartments(defaultDepartments);
       }
     } catch (err: any) {
@@ -94,7 +90,7 @@ export const PatientHome: React.FC = () => {
   if (loading) {
     return (
       <Layout>
-        <div className="patient-home">
+        <div className="departments-page">
           <div className="departments-loading">載入中...</div>
         </div>
       </Layout>
@@ -104,16 +100,18 @@ export const PatientHome: React.FC = () => {
   if (error) {
     return (
       <Layout>
-        <div className="patient-home">
+        <div className="departments-page">
           <div className="departments-error">{error}</div>
         </div>
       </Layout>
     );
   }
 
+  console.log('渲染部門頁面，部門數量:', departments.length);
+
   return (
     <Layout>
-      <div className="patient-home">
+      <div className="departments-page">
         <h1 className="departments-title">可預約門診</h1>
         <p className="departments-subtitle">請先選擇欲預約的科別。</p>
         {departments.length === 0 ? (
@@ -127,4 +125,3 @@ export const PatientHome: React.FC = () => {
     </Layout>
   );
 };
-

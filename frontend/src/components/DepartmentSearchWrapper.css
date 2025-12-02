@@ -1,0 +1,26 @@
+.department-search-wrapper {
+  width: 100%;
+}
+
+.department-search-bar-container {
+  margin-bottom: 2rem;
+}
+
+.department-search-results {
+  width: 100%;
+}
+
+.department-search-empty {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: #6c757d;
+}
+
+.department-search-empty p {
+  font-size: 1rem;
+  margin: 0;
+}
+
+.department-categories {
+  width: 100%;
+}

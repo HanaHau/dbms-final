@@ -17,11 +17,21 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
     navigate('/');
   };
 
+  // 根據登入狀態決定 logo 連結
+  const getLogoLink = () => {
+    if (user && userType === 'patient') {
+      return '/patient/home';
+    } else if (user && userType === 'provider') {
+      return '/provider/sessions';
+    }
+    return '/';
+  };
+
   return (
     <div className="layout">
       <header className="header">
         <div className="header-content">
-          <Link to="/" className="logo">
+          <Link to={getLogoLink()} className="logo">
             <h1>診所數位化系統</h1>
           </Link>
           <nav className="nav">
@@ -55,7 +65,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       </header>
       <main className="main-content">{children}</main>
       <footer className="footer">
-        <p>&copy; 2024 診所數位化系統</p>
+        <p>&copy; 2025 診所數位化系統</p>
       </footer>
     </div>
   );

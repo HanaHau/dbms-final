@@ -1,4 +1,3 @@
-# services/shared/appointment_service.py
 from fastapi import HTTPException
 
 from ...repositories import AppointmentRepository
@@ -66,13 +65,28 @@ class AppointmentService:
         - 更新狀態為「已取消」
         - 寫入 APPOINTMENT_STATUS_HISTORY
         """
-        result = self.appointment_repo.cancel_appointment(appt_id, patient_id)
-        if result is None:
+        try:
+            result = self.appointment_repo.cancel_appointment(appt_id, patient_id)
+            if result is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Appointment not found or patient_id does not match"
+                )
+            return result
+        except Exception as e:
+            if isinstance(e, HTTPException):
+                raise e
+            import traceback
+            error_msg = str(e)
+            error_trace = traceback.format_exc()
+            print(f"❌ 取消掛號錯誤:")
+            print(f"   appt_id: {appt_id}, patient_id: {patient_id}")
+            print(f"   錯誤訊息: {error_msg}")
+            print(f"   錯誤堆疊:\n{error_trace}")
             raise HTTPException(
-                status_code=404,
-                detail="Appointment not found or patient_id does not match"
-            )
-        return result
+                status_code=500,
+                detail=f"Error cancelling appointment: {error_msg}"
+            ) from e
 
     def modify_appointment(
         self, appt_id: int, old_session_id: int, new_session_id: int
@@ -111,11 +125,11 @@ class AppointmentService:
         """
         病人報到（checkin）：
         - 驗證 patient_id 是否匹配
-        - 更新狀態為「已報到」（假設狀態 3 為「已報到」）
+        - 更新狀態為「已報到」（狀態 2 = 已報到）
         - 寫入 APPOINTMENT_STATUS_HISTORY
         """
         result = self.appointment_repo.update_appointment_status_by_patient(
-            patient_id, appt_id, 3  # 狀態 3 = 已報到
+            patient_id, appt_id, 2  # 狀態 2 = 已報到
         )
         if result is None:
             raise HTTPException(
@@ -123,4 +137,3 @@ class AppointmentService:
                 detail="Appointment not found or patient_id does not match"
             )
         return result
-

@@ -1,0 +1,63 @@
+.doctor-session-item {
+  border-radius: 6px;
+  border: 1px solid #e9ecef;
+  background-color: white;
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.doctor-session-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.doctor-session-info {
+  flex: 1;
+}
+
+.doctor-session-name {
+  font-weight: 600;
+  color: #2c3e50;
+  font-size: 1rem;
+  margin-bottom: 0.25rem;
+}
+
+.doctor-session-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.875rem;
+  color: #6c757d;
+}
+
+.doctor-session-time {
+  white-space: nowrap;
+}
+
+.doctor-session-remaining {
+  white-space: nowrap;
+}
+
+.doctor-session-action {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+@media (min-width: 640px) {
+  .doctor-session-content {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .doctor-session-details {
+    flex-direction: row;
+    gap: 1rem;
+  }
+
+  .doctor-session-action {
+    justify-content: flex-end;
+  }
+}

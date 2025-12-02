@@ -55,9 +55,16 @@ class SessionRepository:
                         cs.end_time,
                         cs.capacity,
                         cs.status,
-                        COUNT(a.appt_id) AS booked_count
+                        COUNT(CASE WHEN COALESCE(ash_latest.to_status, 1) != 0 THEN a.appt_id END) AS booked_count
                     FROM CLINIC_SESSION cs
                     LEFT JOIN APPOINTMENT a ON a.session_id = cs.session_id
+                    LEFT JOIN LATERAL (
+                        SELECT ash.to_status
+                        FROM APPOINTMENT_STATUS_HISTORY ash
+                        WHERE ash.appt_id = a.appt_id
+                        ORDER BY ash.changed_at DESC
+                        LIMIT 1
+                    ) AS ash_latest ON TRUE
                     WHERE {where_clause}
                     GROUP BY cs.session_id,
                              cs.provider_id,
@@ -218,9 +225,16 @@ class SessionRepository:
 
                 cur.execute(
                     """
-                    SELECT COUNT(a.appt_id) AS booked_count
+                    SELECT COUNT(CASE WHEN COALESCE(ash_latest.to_status, 1) != 0 THEN a.appt_id END) AS booked_count
                     FROM CLINIC_SESSION cs
                     LEFT JOIN APPOINTMENT a ON a.session_id = cs.session_id
+                    LEFT JOIN LATERAL (
+                        SELECT ash.to_status
+                        FROM APPOINTMENT_STATUS_HISTORY ash
+                        WHERE ash.appt_id = a.appt_id
+                        ORDER BY ash.changed_at DESC
+                        LIMIT 1
+                    ) AS ash_latest ON TRUE
                     WHERE cs.session_id = %s
                     GROUP BY cs.session_id;
                     """,
@@ -244,9 +258,16 @@ class SessionRepository:
                     """
                     SELECT
                         cs.capacity,
-                        COUNT(a.appt_id) AS booked_count
+                        COUNT(CASE WHEN COALESCE(ash_latest.to_status, 1) != 0 THEN a.appt_id END) AS booked_count
                     FROM CLINIC_SESSION cs
                     LEFT JOIN APPOINTMENT a ON a.session_id = cs.session_id
+                    LEFT JOIN LATERAL (
+                        SELECT ash.to_status
+                        FROM APPOINTMENT_STATUS_HISTORY ash
+                        WHERE ash.appt_id = a.appt_id
+                        ORDER BY ash.changed_at DESC
+                        LIMIT 1
+                    ) AS ash_latest ON TRUE
                     WHERE cs.session_id = %s
                     GROUP BY cs.session_id, cs.capacity;
                     """,
@@ -322,12 +343,19 @@ class SessionRepository:
                         pr.license_no,
                         d.name AS dept_name,
                         d.location AS department_location,
-                        COUNT(a.appt_id) AS booked_count
+                        COUNT(CASE WHEN COALESCE(ash_latest.to_status, 1) != 0 THEN a.appt_id END) AS booked_count
                     FROM CLINIC_SESSION cs
                     JOIN PROVIDER pr ON cs.provider_id = pr.user_id
                     JOIN "USER" u ON pr.user_id = u.user_id
                     LEFT JOIN DEPARTMENT d ON pr.dept_id = d.dept_id
                     LEFT JOIN APPOINTMENT a ON a.session_id = cs.session_id
+                    LEFT JOIN LATERAL (
+                        SELECT ash.to_status
+                        FROM APPOINTMENT_STATUS_HISTORY ash
+                        WHERE ash.appt_id = a.appt_id
+                        ORDER BY ash.changed_at DESC
+                        LIMIT 1
+                    ) AS ash_latest ON TRUE
                     WHERE {where_clause}
                     GROUP BY cs.session_id,
                              cs.provider_id,

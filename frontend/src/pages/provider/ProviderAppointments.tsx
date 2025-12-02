@@ -36,10 +36,12 @@ export const ProviderAppointments: React.FC = () => {
 
   const getStatusBadge = (status: number) => {
     const statusMap: Record<number, { text: string; class: string }> = {
-      0: { text: '已取消', class: 'status-cancelled' },
       1: { text: '已預約', class: 'status-booked' },
       2: { text: '已報到', class: 'status-checked-in' },
       3: { text: '已完成', class: 'status-completed' },
+      4: { text: '已取消', class: 'status-cancelled' },
+      5: { text: '未報到', class: 'status-no-show' },
+      6: { text: '候補', class: 'status-waitlisted' },
     };
     const s = statusMap[status] || { text: '未知', class: 'status-unknown' };
     return <span className={`status-badge ${s.class}`}>{s.text}</span>;

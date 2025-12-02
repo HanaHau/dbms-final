@@ -13,6 +13,8 @@ import { ProviderRegister } from './pages/provider/ProviderRegister';
 import { ProviderSessions } from './pages/provider/ProviderSessions';
 import { ProviderAppointments } from './pages/provider/ProviderAppointments';
 import { ProviderEncounter } from './pages/provider/ProviderEncounter';
+import { Departments } from './pages/departments/Departments';
+import { DepartmentDetail } from './pages/departments/DepartmentDetail';
 import './App.css';
 
 function App() {
@@ -21,6 +23,10 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Home />} />
+          
+          {/* 部門選擇頁面 */}
+          <Route path="/departments" element={<Departments />} />
+          <Route path="/departments/:slug" element={<DepartmentDetail />} />
           
           {/* 病人端路由 */}
           <Route path="/patient/login" element={<PatientLogin />} />

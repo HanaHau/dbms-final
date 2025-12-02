@@ -143,6 +143,20 @@ class ProviderService:
         if capacity <= 0:
             raise HTTPException(status_code=400, detail="Capacity must be positive")
 
+        # 驗證時間：結束時間不可早於開始時間，且至少需相隔一小時
+        start_minutes = start_time_.hour * 60 + start_time_.minute
+        end_minutes = end_time_.hour * 60 + end_time_.minute
+        if end_minutes <= start_minutes:
+            raise HTTPException(
+                status_code=400,
+                detail="結束時間必須晚於開診時間",
+            )
+        if end_minutes - start_minutes < 60:
+            raise HTTPException(
+                status_code=400,
+                detail="門診時間至少需為一小時",
+            )
+
         session = self.session_repo.create_clinic_session(
             provider_user_id=provider_id,
             date_=date_,
@@ -167,6 +181,20 @@ class ProviderService:
             raise HTTPException(status_code=400, detail="Capacity must be positive")
         if status is None:
             raise HTTPException(status_code=400, detail="status is required for update")
+
+        # 驗證時間：結束時間不可早於開始時間，且至少需相隔一小時
+        start_minutes = start_time_.hour * 60 + start_time_.minute
+        end_minutes = end_time_.hour * 60 + end_time_.minute
+        if end_minutes <= start_minutes:
+            raise HTTPException(
+                status_code=400,
+                detail="結束時間必須晚於開診時間",
+            )
+        if end_minutes - start_minutes < 60:
+            raise HTTPException(
+                status_code=400,
+                detail="門診時間至少需為一小時",
+            )
 
         row = self.session_repo.update_clinic_session(
             provider_user_id=provider_id,

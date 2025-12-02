@@ -1,5 +1,5 @@
 // 病人登入頁面
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { patientApi } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
@@ -12,7 +12,16 @@ export const PatientLogin: React.FC = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, user, userType } = useAuth();
+
+  useEffect(() => {
+    // 如果已登入，重定向到相應的首頁
+    if (user && userType === 'patient') {
+      navigate('/patient/home', { replace: true });
+    } else if (user && userType === 'provider') {
+      navigate('/provider/sessions', { replace: true });
+    }
+  }, [user, userType, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,7 +74,10 @@ export const PatientLogin: React.FC = () => {
             </button>
           </form>
           <p className="auth-link">
-            還沒有帳號？ <Link to="/patient/register">立即註冊</Link>
+            還沒有帳號？ <Link to="/patient/register">病人註冊</Link>
+          </p>
+          <p className="auth-link">
+            其實我是醫師？ <Link to="/provider/login">前往醫師登入</Link>
           </p>
         </div>
       </div>
