@@ -1,12 +1,24 @@
+.provider-encounter {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
 .provider-encounter h1 {
   margin-bottom: 1.5rem;
   color: #2c3e50;
   font-weight: 600;
   font-size: 1.75rem;
+  text-align: center;
+}
+
+.provider-encounter .btn-secondary {
+  margin-bottom: 1.5rem;
 }
 
 .tabs {
   display: flex;
+  justify-content: center;
   gap: 0.5rem;
   margin-bottom: 2rem;
   border-bottom: 2px solid #e9ecef;
@@ -47,6 +59,7 @@
 .payment-form,
 .payment-display {
   max-width: 700px;
+  margin: 0 auto;
 }
 
 .payment-display {
@@ -449,6 +462,170 @@
   border: 1px solid #dee2e6;
   border-radius: 6px;
   padding: 1rem;
+}
+
+.history-card-combined {
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  padding: 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.history-card-main {
+  flex: 1;
+}
+
+.diagnosis-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.diagnosis-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.375rem 0.75rem;
+  background-color: #e7f3ff;
+  border: 1px solid #b3d9ff;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  color: #0056b3;
+  font-weight: 500;
+}
+
+.diagnosis-tag .primary-badge {
+  background-color: #d4edda;
+  color: #155724;
+  padding: 0.125rem 0.375rem;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.btn-lab-report {
+  padding: 0.5rem 1rem;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background-color 0.2s ease;
+}
+
+.btn-lab-report:hover {
+  background-color: #0056b3;
+}
+
+/* 檢驗報告 Modal */
+.lab-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.lab-modal-content {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  max-width: 900px;
+  width: 90%;
+  max-height: 80vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.lab-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.lab-modal-header h3 {
+  margin: 0;
+  color: #2c3e50;
+  font-weight: 600;
+  font-size: 1.25rem;
+}
+
+.lab-modal-close {
+  background: none;
+  border: none;
+  font-size: 2rem;
+  color: #6c757d;
+  cursor: pointer;
+  padding: 0;
+  width: 2rem;
+  height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
+}
+
+.lab-modal-close:hover {
+  background-color: #f8f9fa;
+}
+
+.lab-modal-body {
+  padding: 1.5rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.lab-modal-body .lab-results-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.lab-modal-body .lab-results-table th,
+.lab-modal-body .lab-results-table td {
+  padding: 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.lab-modal-body .lab-results-table th {
+  background-color: #f8f9fa;
+  font-weight: 600;
+  color: #495057;
+  font-size: 0.9rem;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.lab-modal-body .lab-results-table td {
+  color: #6c757d;
+  font-size: 0.95rem;
+}
+
+.lab-modal-body .lab-results-table tr:hover {
+  background-color: #f8f9fa;
+}
+
+.flag-normal {
+  color: #155724;
+  font-weight: 500;
 }
 
 .history-card-header {

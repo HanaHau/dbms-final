@@ -27,6 +27,13 @@ export const ProviderEncounter: React.FC = () => {
     lab_results: any[];
   } | null>(null);
   
+  // 檢驗報告 Modal
+  const [labReportModal, setLabReportModal] = useState<{
+    show: boolean;
+    encounterDate: string;
+    labResults: any[];
+  }>({ show: false, encounterDate: '', labResults: [] });
+  
   // 疾病搜尋
   const [diseaseSearchQuery, setDiseaseSearchQuery] = useState('');
   const [diseaseOptions, setDiseaseOptions] = useState<Array<{ code_icd: string; description: string }>>([]);
@@ -494,7 +501,7 @@ export const ProviderEncounter: React.FC = () => {
     } catch (err: any) {
       const errorDetail = err.response?.data?.detail || err.message || '儲存失敗';
       alert(`儲存失敗：${errorDetail}`);
-      if (process.env.NODE_ENV === 'development') {
+      if (import.meta.env.DEV) {
         console.error('Payment save error:', err);
       }
     }
@@ -1125,15 +1132,23 @@ export const ProviderEncounter: React.FC = () => {
         {patientHistory && (
           <div className="patient-history-section">
             <h2>病人過往記錄</h2>
-            <div className="history-tabs">
-              <div className="history-item">
-                <h3>就診記錄 ({patientHistory.encounters.length})</h3>
-                {patientHistory.encounters.length === 0 ? (
-                  <p>無過往就診記錄</p>
-                ) : (
-                  <div className="history-list">
-                    {patientHistory.encounters.map((enc: any) => (
-                      <div key={enc.enct_id} className="history-card">
+            {patientHistory.encounters.length === 0 ? (
+              <p>無過往就診記錄</p>
+            ) : (
+              <div className="history-list">
+                {patientHistory.encounters.map((enc: any) => {
+                  // 找到屬於這個 encounter 的診斷
+                  const encounterDiagnoses = patientHistory.diagnoses.filter(
+                    (diag: any) => diag.enct_id === enc.enct_id
+                  );
+                  // 找到屬於這個 encounter 的檢驗結果
+                  const encounterLabResults = patientHistory.lab_results.filter(
+                    (lab: any) => lab.enct_id === enc.enct_id
+                  );
+                  
+                  return (
+                    <div key={enc.enct_id} className="history-card-combined">
+                      <div className="history-card-main">
                         <div className="history-card-header">
                           <strong>{new Date(enc.encounter_at).toLocaleString('zh-TW')}</strong>
                           <span>{enc.department_name || '未知科別'}</span>
@@ -1144,60 +1159,93 @@ export const ProviderEncounter: React.FC = () => {
                             <strong>主訴：</strong>{enc.chief_complaint}
                           </div>
                         )}
+                        {encounterDiagnoses.length > 0 && (
+                          <div className="diagnosis-tags">
+                            {encounterDiagnoses.map((diag: any, diagIdx: number) => (
+                              <span key={diagIdx} className="diagnosis-tag" title={diag.description}>
+                                {diag.code_icd}
+                                {diag.is_primary && <span className="primary-badge">主</span>}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                    ))}
-                  </div>
-                )}
+                      {encounterLabResults.length > 0 && (
+                        <button
+                          className="btn-lab-report"
+                          onClick={() =>
+                            setLabReportModal({
+                              show: true,
+                              encounterDate: new Date(enc.encounter_at).toLocaleString('zh-TW'),
+                              labResults: encounterLabResults,
+                            })
+                          }
+                        >
+                          📋 檢驗報告 ({encounterLabResults.length})
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-              <div className="history-item">
-                <h3>診斷記錄 ({patientHistory.diagnoses.length})</h3>
-                {patientHistory.diagnoses.length === 0 ? (
-                  <p>無過往診斷記錄</p>
-                ) : (
-                  <div className="history-list">
-                    {patientHistory.diagnoses.map((diag: any, idx: number) => (
-                      <div key={idx} className="history-card">
-                        <div className="history-card-header">
-                          <strong>{diag.code_icd}</strong>
-                          {diag.is_primary && <span className="primary-badge">主要診斷</span>}
-                          <span>{new Date(diag.encounter_at).toLocaleDateString('zh-TW')}</span>
-                        </div>
-                        <div className="history-card-content">
-                          {diag.description}
-                        </div>
-                        <div className="history-card-footer">
-                          {diag.provider_name} - {diag.department_name || '未知科別'}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+            )}
+          </div>
+        )}
+
+        {/* 檢驗報告 Modal */}
+        {labReportModal.show && (
+          <div className="lab-modal-overlay" onClick={() => setLabReportModal({ show: false, encounterDate: '', labResults: [] })}>
+            <div className="lab-modal-content" onClick={(e) => e.stopPropagation()}>
+              <div className="lab-modal-header">
+                <h3>檢驗報告 - {labReportModal.encounterDate}</h3>
+                <button
+                  className="lab-modal-close"
+                  onClick={() => setLabReportModal({ show: false, encounterDate: '', labResults: [] })}
+                >
+                  ×
+                </button>
               </div>
-              <div className="history-item">
-                <h3>檢驗報告 ({patientHistory.lab_results.length})</h3>
-                {patientHistory.lab_results.length === 0 ? (
-                  <p>無過往檢驗報告</p>
+              <div className="lab-modal-body">
+                {labReportModal.labResults.length === 0 ? (
+                  <p>無檢驗結果</p>
                 ) : (
-                  <div className="history-list">
-                    {patientHistory.lab_results.map((lab: any) => (
-                      <div key={lab.lab_id} className="history-card">
-                        <div className="history-card-header">
-                          <strong>{lab.item_name}</strong>
-                          <span>{lab.value} {lab.unit}</span>
-                          {lab.abnormal_flag === 'H' && <span className="flag-high">高</span>}
-                          {lab.abnormal_flag === 'L' && <span className="flag-low">低</span>}
-                        </div>
-                        <div className="history-card-content">
-                          {lab.reported_at && (
-                            <span>報告時間：{new Date(lab.reported_at).toLocaleString('zh-TW')}</span>
-                          )}
-                        </div>
-                        <div className="history-card-footer">
-                          {lab.provider_name} - {lab.department_name || '未知科別'}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                  <table className="lab-results-table">
+                    <thead>
+                      <tr>
+                        <th>項目名稱</th>
+                        <th>數值</th>
+                        <th>單位</th>
+                        <th>參考範圍</th>
+                        <th>狀態</th>
+                        <th>報告時間</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {labReportModal.labResults.map((lab: any) => (
+                        <tr key={lab.lab_id}>
+                          <td>{lab.item_name}</td>
+                          <td>{lab.value || '-'}</td>
+                          <td>{lab.unit || '-'}</td>
+                          <td>
+                            {lab.ref_low && lab.ref_high
+                              ? `${lab.ref_low} - ${lab.ref_high}`
+                              : lab.ref_low || lab.ref_high || '-'}
+                          </td>
+                          <td>
+                            {lab.abnormal_flag === 'H' && <span className="flag-high">高</span>}
+                            {lab.abnormal_flag === 'L' && <span className="flag-low">低</span>}
+                            {lab.abnormal_flag === 'N' && <span className="flag-normal">正常</span>}
+                            {!lab.abnormal_flag && '-'}
+                          </td>
+                          <td>
+                            {lab.reported_at
+                              ? new Date(lab.reported_at).toLocaleString('zh-TW')
+                              : '-'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 )}
               </div>
             </div>
