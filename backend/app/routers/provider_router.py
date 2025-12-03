@@ -307,12 +307,19 @@ def api_get_payment(provider_id: int, enct_id: int):
 @router.post("/{provider_id}/encounters/{enct_id}/payment")
 def api_create_payment(provider_id: int, enct_id: int, body: PaymentCreate):
     """建立或更新繳費資料"""
-    return service.upsert_payment(
-        enct_id=enct_id,
-        amount=body.amount,
-        method=body.method,
-        invoice_no=body.invoice_no,
-    )
+    try:
+        return service.upsert_payment(
+            enct_id=enct_id,
+            amount=body.amount,
+            method=body.method,
+            invoice_no=body.invoice_no,
+        )
+    except Exception as e:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error upserting payment: {str(e)}"
+        ) from e
 
 
 @router.get("/{provider_id}/patients/{patient_id}/history")

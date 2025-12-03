@@ -55,18 +55,31 @@ export const PatientRegister: React.FC = () => {
       login(user, 'patient');
       navigate('/patient/appointments');
     } catch (err: any) {
-      console.error('註冊錯誤:', err);
-      console.error('錯誤詳情:', err.response?.data);
+      // 只在開發環境顯示詳細錯誤
+      if (process.env.NODE_ENV === 'development') {
+        console.error('註冊錯誤:', err);
+        console.error('錯誤詳情:', err.response?.data);
+      }
       const errorDetail = err.response?.data?.detail;
       if (Array.isArray(errorDetail)) {
         // Pydantic 驗證錯誤
         const errorMessages = errorDetail.map((e: any) => {
           const field = e.loc && e.loc.length > 0 ? e.loc[e.loc.length - 1] : 'unknown';
-          return `${field}: ${e.msg}`;
-        }).join(', ');
-        setError(`驗證錯誤: ${errorMessages}`);
+          // 將欄位名稱轉換為中文
+          const fieldMap: Record<string, string> = {
+            'national_id': '身分證字號',
+            'birth_date': '生日',
+            'phone': '電話',
+            'name': '姓名',
+            'password': '密碼',
+            'sex': '性別',
+          };
+          const fieldName = fieldMap[field] || field;
+          return `${fieldName}: ${e.msg}`;
+        }).join('；');
+        setError(`驗證錯誤：${errorMessages}`);
       } else if (errorDetail) {
-        setError(errorDetail);
+        setError(typeof errorDetail === 'string' ? errorDetail : '註冊失敗，請檢查輸入資料');
       } else {
         setError(err.message || '註冊失敗，請檢查輸入資料');
       }

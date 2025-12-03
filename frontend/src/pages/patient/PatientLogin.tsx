@@ -33,10 +33,17 @@ export const PatientLogin: React.FC = () => {
       login(user, 'patient');
       navigate('/patient/appointments');
     } catch (err: any) {
-      console.error('登入錯誤:', err);
-      console.error('錯誤詳情:', err.response?.data);
+      // 只在開發環境顯示詳細錯誤
+      if (process.env.NODE_ENV === 'development') {
+        console.error('登入錯誤:', err);
+        console.error('錯誤詳情:', err.response?.data);
+      }
       const errorDetail = err.response?.data?.detail;
-      setError(errorDetail || '登入失敗，請檢查帳號密碼');
+      if (errorDetail) {
+        setError(typeof errorDetail === 'string' ? errorDetail : '登入失敗，請檢查帳號密碼');
+      } else {
+        setError('登入失敗，請檢查帳號密碼是否正確');
+      }
     } finally {
       setLoading(false);
     }

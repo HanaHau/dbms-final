@@ -337,9 +337,13 @@ export const ProviderEncounter: React.FC = () => {
       // 將當前項目添加到列表（只傳送 med_id 給後端，但保留 med_name 用於顯示）
       const newItems = [...prescriptionForm.items, { ...currentPrescriptionItem }];
       
-      // 處方一旦開立即無法更改，所以 status 固定為 2（定稿）
+      // 添加項目時，如果處方不存在或未定稿，保持為草稿狀態（status = 1）
+      // 只有點擊"開立處方"時才設為定稿（status = 2）
+      const currentStatus = prescription?.status || 1;
+      const newStatus = currentStatus === 2 ? 2 : 1; // 如果已定稿則保持定稿，否則保持草稿
+      
       await providerApi.upsertPrescription(user.user_id, encounter.enct_id, {
-        status: 2,
+        status: newStatus,
         items: newItems.map(item => ({
           med_id: item.med_id,
           dosage: item.dosage,
@@ -379,8 +383,12 @@ export const ProviderEncounter: React.FC = () => {
     try {
       const newItems = prescriptionForm.items.filter((_, i) => i !== index);
       
+      // 刪除項目時，保持原有狀態（如果已定稿則保持定稿，否則保持草稿）
+      const currentStatus = prescription?.status || 1;
+      const newStatus = currentStatus === 2 ? 2 : 1;
+      
       await providerApi.upsertPrescription(user.user_id, encounter.enct_id, {
-        status: 2,
+        status: newStatus,
         items: newItems.map(item => ({
           med_id: item.med_id,
           dosage: item.dosage,
@@ -468,12 +476,27 @@ export const ProviderEncounter: React.FC = () => {
 
   const handleSavePayment = async () => {
     if (!user || !encounter) return;
+    
+    // 驗證金額
+    if (!paymentForm.amount || paymentForm.amount <= 0) {
+      alert('請輸入有效的金額（必須大於 0）');
+      return;
+    }
+    
     try {
-      await providerApi.upsertPayment(user.user_id, encounter.enct_id, paymentForm);
+      await providerApi.upsertPayment(user.user_id, encounter.enct_id, {
+        amount: paymentForm.amount,
+        method: paymentForm.method,
+        invoice_no: paymentForm.invoice_no || undefined,
+      });
       alert('儲存繳費資料成功！');
       loadData();
     } catch (err: any) {
-      alert(err.response?.data?.detail || '儲存失敗');
+      const errorDetail = err.response?.data?.detail || err.message || '儲存失敗';
+      alert(`儲存失敗：${errorDetail}`);
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Payment save error:', err);
+      }
     }
   };
 
@@ -710,7 +733,7 @@ export const ProviderEncounter: React.FC = () => {
 
           {activeTab === 'prescription' && (
             <div className="prescription-section">
-              {prescription && (
+              {prescription && prescription.status === 2 && (
                 <>
                   <div className="prescription-info">
                     <p className="prescription-notice">處方已開立，無法修改</p>
@@ -742,10 +765,15 @@ export const ProviderEncounter: React.FC = () => {
                   </div>
                 </>
               )}
-              {!prescription && (
+              {(!prescription || (prescription && prescription.status !== 2)) && (
                 <>
+                  {prescription && prescription.status !== 2 && (
+                    <div className="prescription-info">
+                      <p className="prescription-notice">處方草稿中，可繼續新增項目</p>
+                    </div>
+                  )}
                   <div className="prescription-items">
-                    <h3>新增處方項目</h3>
+                    <h3>{prescription ? '繼續新增處方項目' : '新增處方項目'}</h3>
                     <div className="prescription-item-form">
                       <div className="medication-search-container">
                         <label>藥品名稱</label>

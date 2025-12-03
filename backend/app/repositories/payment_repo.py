@@ -77,6 +77,8 @@ class PaymentRepository:
         """
         conn = get_pg_conn()
         try:
+            # 確保使用事務
+            conn.autocommit = False
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute(
                     "SELECT payment_id FROM PAYMENT WHERE enct_id = %s;",
@@ -111,6 +113,9 @@ class PaymentRepository:
                 result = cur.fetchone()
                 conn.commit()
                 return result
+        except Exception as e:
+            conn.rollback()
+            raise
         finally:
             conn.close()
 

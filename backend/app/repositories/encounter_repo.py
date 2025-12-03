@@ -2,6 +2,7 @@
 from psycopg2.extras import RealDictCursor
 from ..pg_base import get_pg_conn
 from .appointment_repo import AppointmentRepository
+from .session_repo import SessionRepository
 
 
 class EncounterRepository:
@@ -104,38 +105,87 @@ class EncounterRepository:
                 else:
                     # 檢查 provider_id 是否匹配
                     existing_provider_id = row["provider_id"]
+                    enct_id = row["enct_id"]
+                    
                     if existing_provider_id != provider_user_id:
-                        conn.rollback()
-                        raise Exception(
-                            f"Encounter already exists for appointment {appt_id} "
-                            f"with provider {existing_provider_id}. "
-                            f"Cannot update with provider {provider_user_id}."
+                        # Provider 不匹配，檢查 appointment 的 session 是否屬於當前 provider
+                        appointment = AppointmentRepository.get_appointment_by_id(appt_id)
+                        if appointment:
+                            session = SessionRepository.get_session_by_id(appointment["session_id"])
+                            if session and session["provider_id"] == provider_user_id:
+                                # Appointment 屬於當前 provider 的 session，但 encounter 由另一個 provider 創建
+                                # 這可能是數據不一致的情況，允許當前 provider 更新並修正 provider_id
+                                cur.execute(
+                                    """
+                                    UPDATE ENCOUNTER
+                                    SET provider_id = %s,
+                                        status = %s,
+                                        chief_complaint = %s,
+                                        subjective = %s,
+                                        assessment = %s,
+                                        plan = %s
+                                    WHERE enct_id = %s
+                                    RETURNING enct_id, appt_id, provider_id, encounter_at,
+                                              status, chief_complaint, subjective, assessment, plan;
+                                    """,
+                                    (
+                                        provider_user_id,
+                                        status,
+                                        chief_complaint,
+                                        subjective,
+                                        assessment,
+                                        plan,
+                                        enct_id,
+                                    ),
+                                )
+                            else:
+                                # Appointment 不屬於當前 provider 的 session
+                                conn.rollback()
+                                raise Exception(
+                                    f"Encounter already exists for appointment {appt_id} "
+                                    f"with provider {existing_provider_id}. "
+                                    f"Cannot update with provider {provider_user_id}."
+                                )
+                        else:
+                            # Appointment 不存在
+                            conn.rollback()
+                            raise Exception(
+                                f"Appointment {appt_id} not found."
+                            )
+                    else:
+                        # Provider 匹配，正常更新
+                        cur.execute(
+                            """
+                            UPDATE ENCOUNTER
+                            SET status          = %s,
+                                chief_complaint = %s,
+                                subjective      = %s,
+                                assessment      = %s,
+                                plan            = %s
+                            WHERE enct_id = %s
+                              AND provider_id = %s
+                            RETURNING enct_id, appt_id, provider_id, encounter_at,
+                                      status, chief_complaint, subjective, assessment, plan;
+                            """,
+                            (
+                                status,
+                                chief_complaint,
+                                subjective,
+                                assessment,
+                                plan,
+                                enct_id,
+                                provider_user_id,
+                            ),
                         )
                     
-                    enct_id = row["enct_id"]
-                    cur.execute(
-                        """
-                        UPDATE ENCOUNTER
-                        SET status          = %s,
-                            chief_complaint = %s,
-                            subjective      = %s,
-                            assessment      = %s,
-                            plan            = %s
-                        WHERE enct_id = %s
-                          AND provider_id = %s
-                        RETURNING enct_id, appt_id, provider_id, encounter_at,
-                                  status, chief_complaint, subjective, assessment, plan;
-                        """,
-                        (
-                            status,
-                            chief_complaint,
-                            subjective,
-                            assessment,
-                            plan,
-                            enct_id,
-                            provider_user_id,
-                        ),
-                    )
+                    # 當更新現有 encounter 時，檢查並更新 appointment 狀態為 completed (3)
+                    # 但不要更新已取消的 appointment (status 4)
+                    current_appt_status = AppointmentRepository._get_latest_status(conn, appt_id)
+                    if current_appt_status is not None and current_appt_status != 3 and current_appt_status != 4:
+                        # 如果當前狀態不是 "completed" 且不是 "cancelled"，更新為 "completed"
+                        AppointmentRepository._insert_status_history(
+                            conn, appt_id, current_appt_status, 3, provider_user_id
+                        )
 
                 result = cur.fetchone()
                 conn.commit()
