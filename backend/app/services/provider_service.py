@@ -264,7 +264,10 @@ class ProviderService:
         """
         新增或更新就診紀錄
         注意：status = 1 為草稿，status = 2 為已定稿（不可再編輯）
+        - 檢查門診時間是否在範圍內（僅在創建新 encounter 時檢查）
         """
+        from ..repositories import SessionRepository
+        
         # 檢查是否已定稿 - 如果已定稿，完全禁止編輯（包括內容和狀態）
         existing = self.encounter_repo.get_encounter_by_appt(provider_id, appt_id)
         if existing and existing.get("status") == 2:
@@ -272,6 +275,26 @@ class ProviderService:
                 status_code=403,
                 detail="Cannot modify finalized encounter"
             )
+        
+        # 如果不存在 encounter，則為創建新 encounter，需要檢查門診時間
+        if existing is None:
+            # 獲取 appointment 的 session_id
+            appointment = self.appointment_repo.get_appointment_by_id(appt_id)
+            if appointment is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Appointment not found"
+                )
+            
+            session_id = appointment["session_id"]
+            
+            # 檢查門診時間是否在範圍內
+            is_valid, session_info = SessionRepository.is_session_time_valid(session_id)
+            if not is_valid:
+                raise HTTPException(
+                    status_code=400,
+                    detail="只能在門診時間內建立就診記錄"
+                )
 
         return self.encounter_repo.upsert_encounter(
             provider_user_id=provider_id,

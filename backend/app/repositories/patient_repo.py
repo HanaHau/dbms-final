@@ -117,7 +117,9 @@ class PatientRepository:
                         pt.national_id,
                         pt.birth_date,
                         pt.sex,
-                        pt.phone
+                        pt.phone,
+                        COALESCE(pt.no_show_count, 0) AS no_show_count,
+                        pt.banned_until
                     FROM PATIENT pt
                     JOIN "USER" u ON pt.user_id = u.user_id
                     WHERE pt.user_id = %s;
@@ -127,3 +129,120 @@ class PatientRepository:
                 return cur.fetchone()
         finally:
             conn.close()
+
+    @staticmethod
+    def is_patient_banned(patient_id):
+        """
+        檢查病人是否被禁止掛號（達到三次爽約且在兩週內）。
+        回傳 (is_banned, banned_until) 元組。
+        """
+        from datetime import date, timedelta
+        conn = get_pg_conn()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT no_show_count, banned_until
+                    FROM PATIENT
+                    WHERE user_id = %s;
+                    """,
+                    (patient_id,),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    return False, None
+                
+                no_show_count = row["no_show_count"] or 0
+                banned_until = row["banned_until"]
+                
+                # 如果達到三次爽約
+                if no_show_count >= 3:
+                    # 如果 banned_until 為空，設置為兩週後
+                    if banned_until is None:
+                        banned_until = date.today() + timedelta(days=14)
+                        cur.execute(
+                            """
+                            UPDATE PATIENT
+                            SET banned_until = %s
+                            WHERE user_id = %s;
+                            """,
+                            (banned_until, patient_id),
+                        )
+                        conn.commit()
+                    
+                    # 檢查是否還在禁止期內
+                    if date.today() <= banned_until:
+                        return True, banned_until
+                    else:
+                        # 禁止期已過，重置爽約次數和禁止日期
+                        cur.execute(
+                            """
+                            UPDATE PATIENT
+                            SET no_show_count = 0, banned_until = NULL
+                            WHERE user_id = %s;
+                            """,
+                            (patient_id,),
+                        )
+                        conn.commit()
+                        return False, None
+                
+                return False, None
+        finally:
+            conn.close()
+
+    @staticmethod
+    def increment_no_show_count(patient_id):
+        """
+        累計病人的爽約次數。
+        """
+        from datetime import date, timedelta
+        conn = get_pg_conn()
+        try:
+            conn.autocommit = False
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # 獲取當前爽約次數
+                cur.execute(
+                    """
+                    SELECT COALESCE(no_show_count, 0) AS no_show_count
+                    FROM PATIENT
+                    WHERE user_id = %s;
+                    """,
+                    (patient_id,),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    conn.rollback()
+                    return
+                
+                new_count = (row["no_show_count"] or 0) + 1
+                
+                # 更新爽約次數
+                # 如果達到三次，設置禁止日期為兩週後
+                if new_count >= 3:
+                    banned_until = date.today() + timedelta(days=14)
+                    cur.execute(
+                        """
+                        UPDATE PATIENT
+                        SET no_show_count = %s, banned_until = %s
+                        WHERE user_id = %s;
+                        """,
+                        (new_count, banned_until, patient_id),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        UPDATE PATIENT
+                        SET no_show_count = %s
+                        WHERE user_id = %s;
+                        """,
+                        (new_count, patient_id),
+                    )
+                
+                conn.commit()
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            raise e
+        finally:
+            if conn:
+                conn.close()

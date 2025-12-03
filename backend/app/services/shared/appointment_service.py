@@ -12,12 +12,24 @@ class AppointmentService:
     def create_appointment(self, patient_id: int, session_id: int):
         """
         建立掛號：
+        - 檢查病人是否被禁止掛號（達到三次爽約且在兩週內）
         - 檢查是否已在該 session 重複掛號
         - 檢查 session 容量是否已滿
         - 使用 transaction + FOR UPDATE 避免併行衝突
         - slot_seq = 已掛號人數 + 1
         - 寫入 APPOINTMENT_STATUS_HISTORY
         """
+        from ..repositories import PatientRepository
+        
+        # 檢查病人是否被禁止掛號
+        is_banned, banned_until = PatientRepository.is_patient_banned(patient_id)
+        if is_banned:
+            from datetime import date
+            raise HTTPException(
+                status_code=403,
+                detail=f"您因爽約次數過多，已被禁止掛號至 {banned_until}。請於禁止期結束後再試。"
+            )
+        
         try:
             appt = self.appointment_repo.create_appointment(patient_id, session_id)
             if appt is None:
@@ -125,9 +137,30 @@ class AppointmentService:
         """
         病人報到（checkin）：
         - 驗證 patient_id 是否匹配
+        - 檢查門診時間是否在範圍內
         - 更新狀態為「已報到」（狀態 2 = 已報到）
         - 寫入 APPOINTMENT_STATUS_HISTORY
         """
+        from ..repositories import SessionRepository
+        
+        # 獲取 appointment 的 session_id
+        appointment = self.appointment_repo.get_appointment_by_id(appt_id)
+        if appointment is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Appointment not found"
+            )
+        
+        session_id = appointment["session_id"]
+        
+        # 檢查門診時間是否在範圍內
+        is_valid, session_info = SessionRepository.is_session_time_valid(session_id)
+        if not is_valid:
+            raise HTTPException(
+                status_code=400,
+                detail="只能在門診時間內報到"
+            )
+        
         result = self.appointment_repo.update_appointment_status_by_patient(
             patient_id, appt_id, 2  # 狀態 2 = 已報到
         )

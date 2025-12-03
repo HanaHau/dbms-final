@@ -246,6 +246,42 @@ class SessionRepository:
             conn.close()
 
     @staticmethod
+    def is_session_time_valid(session_id):
+        """
+        檢查門診時段是否在時間範圍內（當前時間在 start_time 和 end_time 之間）。
+        回傳 (is_valid, session_info) 元組。
+        """
+        from datetime import datetime, date, time
+        conn = get_pg_conn()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT session_id, date, start_time, end_time
+                    FROM CLINIC_SESSION
+                    WHERE session_id = %s;
+                    """,
+                    (session_id,),
+                )
+                session = cur.fetchone()
+                if session is None:
+                    return False, None
+                
+                session_date = session["date"]
+                start_time = session["start_time"]
+                end_time = session["end_time"]
+                
+                # 檢查當前時間是否在門診時間範圍內
+                now = datetime.now()
+                session_start = datetime.combine(session_date, start_time)
+                session_end = datetime.combine(session_date, end_time)
+                
+                is_valid = session_start <= now <= session_end
+                return is_valid, session
+        finally:
+            conn.close()
+
+    @staticmethod
     def get_remaining_capacity(session_id):
         """
         取得某個門診時段的剩餘容量。
