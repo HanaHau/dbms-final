@@ -83,12 +83,12 @@ export const ProviderAppointments: React.FC = () => {
                         建立就診記錄
                       </button>
                     )}
-                    {appt.status >= 3 && (
+                    {appt.status >= 3 && appt.status !== 4 && appt.status !== 5 && (
                       <button
                         className="btn btn-primary btn-small"
                         onClick={() => navigate(`/provider/encounter/${appt.appt_id}`)}
                       >
-                        查看/編輯就診記錄
+                        {appt.encounter_status === 2 ? '查看就診記錄' : '查看/編輯就診記錄'}
                       </button>
                     )}
                   </td>

@@ -109,7 +109,7 @@ export const PatientAppointments: React.FC = () => {
                     <td>{appt.slot_seq}</td>
                     <td>{getStatusBadge(appt.status)}</td>
                     <td>
-                      {appt.status === 1 && (
+                      {(appt.status === 1 || appt.status === 5) && (
                         <button
                           className="btn-small btn-danger"
                           onClick={() => handleCancel(appt.appt_id)}
@@ -117,7 +117,7 @@ export const PatientAppointments: React.FC = () => {
                           取消
                         </button>
                       )}
-                      {appt.status === 1 && (
+                      {(appt.status === 1 || appt.status === 5) && (
                         <button
                           className="btn-small btn-primary"
                           onClick={() => handleCheckin(appt.appt_id)}

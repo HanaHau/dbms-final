@@ -102,21 +102,121 @@ class AppointmentRepository:
             conn.close()
 
     @staticmethod
+    def _get_appointments_with_status_for_session(conn, session_id):
+        """
+        獲取某個 session 中所有掛號及其當前狀態（內部輔助方法）。
+        用於自動過號檢查。
+        """
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT
+                    a.appt_id,
+                    a.slot_seq,
+                    COALESCE(ash_latest.to_status, 1) AS status
+                FROM APPOINTMENT a
+                LEFT JOIN LATERAL (
+                    SELECT ash.to_status
+                    FROM APPOINTMENT_STATUS_HISTORY ash
+                    WHERE ash.appt_id = a.appt_id
+                    ORDER BY ash.changed_at DESC
+                    LIMIT 1
+                ) AS ash_latest ON TRUE
+                WHERE a.session_id = %s
+                ORDER BY a.slot_seq;
+                """,
+                (session_id,),
+            )
+            return cur.fetchall()
+
+    @staticmethod
+    def _auto_mark_no_show(conn, session_id, changed_by):
+        """
+        自動過號檢查：
+        - 對於 slot_seq > 1 且狀態為「已預約」(1) 的掛號
+        - 如果所有 slot_seq < n 的掛號狀態都是「已完成」(3)、「已取消」(4) 或「已過號」(5)
+        - 則自動將該掛號設為「已過號」(5)
+        """
+        appointments = AppointmentRepository._get_appointments_with_status_for_session(conn, session_id)
+        
+        # 狀態定義：3=已完成, 4=已取消, 5=已過號
+        # 這些狀態表示該掛號已經處理完畢，不會再被叫號
+        completed_statuses = {3, 4, 5}
+        
+        auto_marked_count = 0
+        
+        for appt in appointments:
+            appt_id = appt["appt_id"]
+            slot_seq = appt["slot_seq"]
+            current_status = appt["status"]
+            
+            # 只處理 slot_seq > 1 且狀態為「已預約」(1) 的掛號
+            if slot_seq <= 1 or current_status != 1:
+                continue
+            
+            # 檢查所有 slot_seq < n 的掛號狀態
+            all_previous_completed = True
+            for prev_appt in appointments:
+                if prev_appt["slot_seq"] < slot_seq:
+                    prev_status = prev_appt["status"]
+                    if prev_status not in completed_statuses:
+                        all_previous_completed = False
+                        break
+            
+            # 如果所有前面的掛號都已完成/取消/過號，則自動設為過號
+            if all_previous_completed:
+                from_status = AppointmentRepository._get_latest_status(conn, appt_id)
+                AppointmentRepository._insert_status_history(
+                    conn, appt_id, from_status, 5, changed_by
+                )
+                auto_marked_count += 1
+        
+        return auto_marked_count
+
+    @staticmethod
     def update_appointment_status(provider_user_id, appt_id, new_status):
         """
         醫師更新掛號狀態：
         - 查目前最新狀態作為 from_status
         - 寫一筆新的 APPOINTMENT_STATUS_HISTORY
+        - 更新狀態後自動檢查並設置過號
         """
         conn = get_pg_conn()
         try:
+            conn.autocommit = False
+            # 先獲取掛號資訊以取得 session_id（在同一個連接中）
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT session_id
+                    FROM APPOINTMENT
+                    WHERE appt_id = %s;
+                    """,
+                    (appt_id,),
+                )
+                appt_info = cur.fetchone()
+                if appt_info is None:
+                    conn.rollback()
+                    raise Exception(f"Appointment {appt_id} not found")
+                
+                session_id = appt_info["session_id"]
+            
             from_status = AppointmentRepository._get_latest_status(conn, appt_id)
             AppointmentRepository._insert_status_history(
                 conn, appt_id, from_status, new_status, provider_user_id
             )
+            
+            # 狀態更新後，自動檢查並設置過號
+            AppointmentRepository._auto_mark_no_show(conn, session_id, provider_user_id)
+            
             conn.commit()
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            raise e
         finally:
-            conn.close()
+            if conn:
+                conn.close()
 
     @staticmethod
     def list_appointments_for_patient(patient_id):
@@ -181,10 +281,10 @@ class AppointmentRepository:
         try:
             conn.autocommit = False
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # 驗證 appt_id 和 patient_id 是否匹配，並獲取對應的 provider_id
+                # 驗證 appt_id 和 patient_id 是否匹配，並獲取對應的 provider_id 和 session_id
                 cur.execute(
                     """
-                    SELECT a.appt_id, a.patient_id, cs.provider_id
+                    SELECT a.appt_id, a.patient_id, a.session_id, cs.provider_id
                     FROM APPOINTMENT a
                     JOIN CLINIC_SESSION cs ON a.session_id = cs.session_id
                     WHERE a.appt_id = %s AND a.patient_id = %s;
@@ -198,7 +298,9 @@ class AppointmentRepository:
 
                 # 獲取 provider_id（changed_by 必須是 provider_id，因為外鍵約束）
                 provider_id = row["provider_id"]
-
+                # 獲取 session_id 用於自動過號檢查
+                session_id = row["session_id"]
+            
             # 使用統一的狀態更新邏輯
             from_status = AppointmentRepository._get_latest_status(conn, appt_id)
             # 如果沒有狀態歷史，假設初始狀態為 1（已預約）
@@ -207,6 +309,9 @@ class AppointmentRepository:
             AppointmentRepository._insert_status_history(
                 conn, appt_id, from_status, new_status, provider_id
             )
+            
+            # 狀態更新後，自動檢查並設置過號
+            AppointmentRepository._auto_mark_no_show(conn, session_id, provider_id)
 
             conn.commit()
             return {"appt_id": appt_id, "status_updated": True}
@@ -421,6 +526,18 @@ class AppointmentRepository:
 
                 # 獲取 provider_id（changed_by 必須是 provider_id，因為外鍵約束）
                 provider_id = row["provider_id"]
+                
+                # 獲取 session_id 用於自動過號檢查
+                cur.execute(
+                    """
+                    SELECT session_id
+                    FROM APPOINTMENT
+                    WHERE appt_id = %s;
+                    """,
+                    (appt_id,),
+                )
+                session_row = cur.fetchone()
+                session_id = session_row["session_id"] if session_row else None
 
                 # 使用統一的狀態更新邏輯
                 from_status = AppointmentRepository._get_latest_status(conn, appt_id)
@@ -448,6 +565,10 @@ class AppointmentRepository:
                 if verify_row is None or verify_row["to_status"] != 4:
                     conn.rollback()
                     raise Exception(f"Failed to update status: expected 4, got {verify_row['to_status'] if verify_row else 'None'}")
+                
+                # 取消掛號後，自動檢查並設置過號
+                if session_id:
+                    AppointmentRepository._auto_mark_no_show(conn, session_id, provider_id)
 
                 conn.commit()
                 return {"appt_id": appt_id, "cancelled": True, "status": 4}

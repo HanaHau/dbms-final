@@ -102,6 +102,12 @@ class EncounterRepository:
                     AppointmentRepository._insert_status_history(
                         conn, appt_id, from_status, 3, provider_user_id
                     )
+                    
+                    # 獲取 session_id 用於自動過號檢查
+                    appointment = AppointmentRepository.get_appointment_by_id(appt_id)
+                    if appointment:
+                        session_id = appointment["session_id"]
+                        AppointmentRepository._auto_mark_no_show(conn, session_id, provider_user_id)
                 else:
                     # 檢查 provider_id 是否匹配
                     existing_provider_id = row["provider_id"]
@@ -186,6 +192,12 @@ class EncounterRepository:
                         AppointmentRepository._insert_status_history(
                             conn, appt_id, current_appt_status, 3, provider_user_id
                         )
+                        
+                        # 獲取 session_id 用於自動過號檢查
+                        appointment = AppointmentRepository.get_appointment_by_id(appt_id)
+                        if appointment:
+                            session_id = appointment["session_id"]
+                            AppointmentRepository._auto_mark_no_show(conn, session_id, provider_user_id)
 
                 result = cur.fetchone()
                 conn.commit()
