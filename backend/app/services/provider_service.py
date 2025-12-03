@@ -131,6 +131,40 @@ class ProviderService:
             status=status,
         )
 
+    def _check_time_overlap(self, provider_id: int, date_: date, start_time_: time, end_time_: time, exclude_session_id: int = None):
+        """
+        檢查該醫生在同一日期是否有時間重疊的門診時段。
+        
+        Args:
+            provider_id: 醫師 ID
+            date_: 門診日期
+            start_time_: 開始時間
+            end_time_: 結束時間
+            exclude_session_id: 要排除的 session_id（用於更新時段時排除自己）
+        
+        Returns:
+            如果有重疊，返回重疊的時段資訊；否則返回 None
+        """
+        # 獲取該醫生在同一天的所有活躍時段
+        sessions = self.session_repo.list_clinic_sessions_for_provider(
+            provider_user_id=provider_id,
+            from_date=date_,
+            to_date=date_,
+            status=1  # 只檢查活躍的時段
+        )
+        
+        for session in sessions:
+            # 排除自己（用於更新時段時）
+            if exclude_session_id and session["session_id"] == exclude_session_id:
+                continue
+            
+            # 檢查時間是否重疊
+            # 重疊條件：新時段的開始時間 < 現有時段的結束時間 且 新時段的結束時間 > 現有時段的開始時間
+            if (start_time_ < session["end_time"] and end_time_ > session["start_time"]):
+                return session
+        
+        return None
+
     def create_session(
         self,
         provider_id: int,
@@ -155,6 +189,19 @@ class ProviderService:
             raise HTTPException(
                 status_code=400,
                 detail="門診時間至少需為一小時",
+            )
+        
+        # 檢查是否有時間重疊的門診時段
+        overlapping_session = self._check_time_overlap(
+            provider_id=provider_id,
+            date_=date_,
+            start_time_=start_time_,
+            end_time_=end_time_
+        )
+        if overlapping_session:
+            raise HTTPException(
+                status_code=400,
+                detail=f"該時段與現有門診時段重疊：{overlapping_session['start_time']}-{overlapping_session['end_time']}"
             )
 
         session = self.session_repo.create_clinic_session(
@@ -194,6 +241,20 @@ class ProviderService:
             raise HTTPException(
                 status_code=400,
                 detail="門診時間至少需為一小時",
+            )
+        
+        # 檢查是否有時間重疊的門診時段（排除自己）
+        overlapping_session = self._check_time_overlap(
+            provider_id=provider_id,
+            date_=date_,
+            start_time_=start_time_,
+            end_time_=end_time_,
+            exclude_session_id=session_id
+        )
+        if overlapping_session:
+            raise HTTPException(
+                status_code=400,
+                detail=f"該時段與現有門診時段重疊：{overlapping_session['start_time']}-{overlapping_session['end_time']}"
             )
 
         row = self.session_repo.update_clinic_session(
