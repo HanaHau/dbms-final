@@ -344,13 +344,7 @@ export const ProviderEncounter: React.FC = () => {
       // 將當前項目添加到列表（只傳送 med_id 給後端，但保留 med_name 用於顯示）
       const newItems = [...prescriptionForm.items, { ...currentPrescriptionItem }];
       
-      // 添加項目時，如果處方不存在或未定稿，保持為草稿狀態（status = 1）
-      // 只有點擊"開立處方"時才設為定稿（status = 2）
-      const currentStatus = prescription?.status || 1;
-      const newStatus = currentStatus === 2 ? 2 : 1; // 如果已定稿則保持定稿，否則保持草稿
-      
       await providerApi.upsertPrescription(user.user_id, encounter.enct_id, {
-        status: newStatus,
         items: newItems.map(item => ({
           med_id: item.med_id,
           dosage: item.dosage,
@@ -390,12 +384,7 @@ export const ProviderEncounter: React.FC = () => {
     try {
       const newItems = prescriptionForm.items.filter((_, i) => i !== index);
       
-      // 刪除項目時，保持原有狀態（如果已定稿則保持定稿，否則保持草稿）
-      const currentStatus = prescription?.status || 1;
-      const newStatus = currentStatus === 2 ? 2 : 1;
-      
       await providerApi.upsertPrescription(user.user_id, encounter.enct_id, {
-        status: newStatus,
         items: newItems.map(item => ({
           med_id: item.med_id,
           dosage: item.dosage,
@@ -423,7 +412,6 @@ export const ProviderEncounter: React.FC = () => {
     
     try {
       await providerApi.upsertPrescription(user.user_id, encounter.enct_id, {
-        status: 2,
         items: prescriptionForm.items.map(item => ({
           med_id: item.med_id,
           dosage: item.dosage,
@@ -740,11 +728,8 @@ export const ProviderEncounter: React.FC = () => {
 
           {activeTab === 'prescription' && (
             <div className="prescription-section">
-              {prescription && prescription.status === 2 && (
+              {prescription && prescription.items && prescription.items.length > 0 && (
                 <>
-                  <div className="prescription-info">
-                    <p className="prescription-notice">處方已開立，無法修改</p>
-                  </div>
                   <div className="prescription-display">
                     <h3>處方內容</h3>
                     <table className="prescription-table">
@@ -772,13 +757,8 @@ export const ProviderEncounter: React.FC = () => {
                   </div>
                 </>
               )}
-              {(!prescription || (prescription && prescription.status !== 2)) && (
+              {(!prescription || !prescription.items || prescription.items.length === 0) && (
                 <>
-                  {prescription && prescription.status !== 2 && (
-                    <div className="prescription-info">
-                      <p className="prescription-notice">處方草稿中，可繼續新增項目</p>
-                    </div>
-                  )}
                   <div className="prescription-items">
                     <h3>{prescription ? '繼續新增處方項目' : '新增處方項目'}</h3>
                     <div className="prescription-item-form">

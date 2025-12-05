@@ -131,20 +131,21 @@ class ProviderService:
             status=status,
         )
 
-    def _check_time_overlap(self, provider_id: int, date_: date, start_time_: time, end_time_: time, exclude_session_id: int = None):
+    def _check_period_overlap(self, provider_id: int, date_: date, period: int, exclude_session_id: int = None):
         """
-        檢查該醫生在同一日期是否有時間重疊的門診時段。
+        檢查該醫生在同一日期是否有相同時段（period）的門診。
         
         Args:
             provider_id: 醫師 ID
             date_: 門診日期
-            start_time_: 開始時間
-            end_time_: 結束時間
+            period: 時段 (1=早診, 2=午診, 3=晚診)
             exclude_session_id: 要排除的 session_id（用於更新時段時排除自己）
         
         Returns:
             如果有重疊，返回重疊的時段資訊；否則返回 None
         """
+        from ..lib.period_utils import check_period_overlap
+        
         # 獲取該醫生在同一天的所有活躍時段
         sessions = self.session_repo.list_clinic_sessions_for_provider(
             provider_user_id=provider_id,
@@ -158,9 +159,8 @@ class ProviderService:
             if exclude_session_id and session["session_id"] == exclude_session_id:
                 continue
             
-            # 檢查時間是否重疊
-            # 重疊條件：新時段的開始時間 < 現有時段的結束時間 且 新時段的結束時間 > 現有時段的開始時間
-            if (start_time_ < session["end_time"] and end_time_ > session["start_time"]):
+            # 檢查 period 是否相同（相同 period 即為重疊）
+            if session["period"] == period:
                 return session
         
         return None
@@ -169,46 +169,38 @@ class ProviderService:
         self,
         provider_id: int,
         date_: date,
-        start_time_: time,
-        end_time_: time,
+        period: int,
         capacity: int,
     ):
         """醫師新增門診時段"""
         if capacity <= 0:
             raise HTTPException(status_code=400, detail="Capacity must be positive")
 
-        # 驗證時間：結束時間不可早於開始時間，且至少需相隔一小時
-        start_minutes = start_time_.hour * 60 + start_time_.minute
-        end_minutes = end_time_.hour * 60 + end_time_.minute
-        if end_minutes <= start_minutes:
+        # 驗證 period 是否有效
+        if period not in [1, 2, 3]:
             raise HTTPException(
                 status_code=400,
-                detail="結束時間必須晚於開診時間",
-            )
-        if end_minutes - start_minutes < 60:
-            raise HTTPException(
-                status_code=400,
-                detail="門診時間至少需為一小時",
+                detail="時段必須為 1(早診)、2(午診) 或 3(晚診)",
             )
         
-        # 檢查是否有時間重疊的門診時段
-        overlapping_session = self._check_time_overlap(
+        # 檢查是否有相同時段的門診
+        overlapping_session = self._check_period_overlap(
             provider_id=provider_id,
             date_=date_,
-            start_time_=start_time_,
-            end_time_=end_time_
+            period=period
         )
         if overlapping_session:
+            from ..lib.period_utils import period_to_name
+            period_name = period_to_name(period)
             raise HTTPException(
                 status_code=400,
-                detail=f"該時段與現有門診時段重疊：{overlapping_session['start_time']}-{overlapping_session['end_time']}"
+                detail=f"該日期已有{period_name}時段，無法重複建立"
             )
 
         session = self.session_repo.create_clinic_session(
             provider_user_id=provider_id,
             date_=date_,
-            start_time_=start_time_,
-            end_time_=end_time_,
+            period=period,
             capacity=capacity,
         )
         return session
@@ -218,8 +210,7 @@ class ProviderService:
         provider_id: int,
         session_id: int,
         date_: date,
-        start_time_: time,
-        end_time_: time,
+        period: int,
         capacity: int,
         status: int,
     ):
@@ -229,40 +220,40 @@ class ProviderService:
         if status is None:
             raise HTTPException(status_code=400, detail="status is required for update")
 
-        # 驗證時間：結束時間不可早於開始時間，且至少需相隔一小時
-        start_minutes = start_time_.hour * 60 + start_time_.minute
-        end_minutes = end_time_.hour * 60 + end_time_.minute
-        if end_minutes <= start_minutes:
+        # 驗證 period 是否有效
+        if period not in [1, 2, 3]:
             raise HTTPException(
                 status_code=400,
-                detail="結束時間必須晚於開診時間",
-            )
-        if end_minutes - start_minutes < 60:
-            raise HTTPException(
-                status_code=400,
-                detail="門診時間至少需為一小時",
+                detail="時段必須為 1(早診)、2(午診) 或 3(晚診)",
             )
         
-        # 檢查是否有時間重疊的門診時段（排除自己）
-        overlapping_session = self._check_time_overlap(
+        # 驗證 status 只能是 0 或 1
+        if status not in [0, 1]:
+            raise HTTPException(
+                status_code=400,
+                detail="狀態必須為 0(停診) 或 1(開診)",
+            )
+        
+        # 檢查是否有相同時段的門診（排除自己）
+        overlapping_session = self._check_period_overlap(
             provider_id=provider_id,
             date_=date_,
-            start_time_=start_time_,
-            end_time_=end_time_,
+            period=period,
             exclude_session_id=session_id
         )
         if overlapping_session:
+            from ..lib.period_utils import period_to_name
+            period_name = period_to_name(period)
             raise HTTPException(
                 status_code=400,
-                detail=f"該時段與現有門診時段重疊：{overlapping_session['start_time']}-{overlapping_session['end_time']}"
+                detail=f"該日期已有{period_name}時段，無法重複建立"
             )
 
         row = self.session_repo.update_clinic_session(
             provider_user_id=provider_id,
             session_id=session_id,
             date_=date_,
-            start_time_=start_time_,
-            end_time_=end_time_,
+            period=period,
             capacity=capacity,
             status=status,
         )
@@ -339,7 +330,8 @@ class ProviderService:
         
         # 如果不存在 encounter，則為創建新 encounter，需要檢查門診時間
         if existing is None:
-            # 獲取 appointment 的 session_id
+            # 獲取 appointment 的 session 資訊
+            from ..repositories.session_repo import SessionRepository
             appointment = self.appointment_repo.get_appointment_by_id(appt_id)
             if appointment is None:
                 raise HTTPException(
@@ -348,9 +340,18 @@ class ProviderService:
                 )
             
             session_id = appointment["session_id"]
+            session_info = SessionRepository.get_session_by_id(session_id)
+            if session_info is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Session not found"
+                )
             
             # 檢查門診時間是否在範圍內
-            is_valid, session_info = SessionRepository.is_session_time_valid(session_id)
+            is_valid, _ = SessionRepository.is_session_time_valid(
+                session_info["date"], 
+                session_info["period"]
+            )
             if not is_valid:
                 raise HTTPException(
                     status_code=400,
@@ -442,9 +443,9 @@ class ProviderService:
         # 前端已經用 .catch(() => null) 處理，但為了保持一致性，這裡也返回 None
         return rx
 
-    def upsert_prescription(self, enct_id: int, status: int, items: list):
+    def upsert_prescription(self, enct_id: int, items: list):
         """新增或更新處方箋"""
-        header = self.prescription_repo.upsert_prescription_for_encounter(enct_id, status)
+        header = self.prescription_repo.upsert_prescription_for_encounter(enct_id)
         rx_id = header["rx_id"]
         items_dicts = [item if isinstance(item, dict) else item.dict() for item in items]
         self.prescription_repo.replace_prescription_items(rx_id, items_dicts)

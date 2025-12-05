@@ -16,7 +16,7 @@ class PrescriptionRepository:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute(
                     """
-                    SELECT rx_id, enct_id, status
+                    SELECT rx_id, enct_id
                     FROM PRESCRIPTION
                     WHERE enct_id = %s;
                     """,
@@ -54,7 +54,7 @@ class PrescriptionRepository:
             conn.close()
 
     @staticmethod
-    def upsert_prescription_for_encounter(enct_id, status):
+    def upsert_prescription_for_encounter(enct_id):
         """
         建立或更新某次就診的處方箋（只管 PRESCRIPTION；INCLUDE 由 replace_prescription_items 負責）。
         """
@@ -69,22 +69,21 @@ class PrescriptionRepository:
                 if row is None:
                     cur.execute(
                         """
-                        INSERT INTO PRESCRIPTION (enct_id, status)
-                        VALUES (%s, %s)
-                        RETURNING rx_id, enct_id, status;
+                        INSERT INTO PRESCRIPTION (enct_id)
+                        VALUES (%s)
+                        RETURNING rx_id, enct_id;
                         """,
-                        (enct_id, status),
+                        (enct_id,),
                     )
                 else:
                     rx_id = row["rx_id"]
                     cur.execute(
                         """
-                        UPDATE PRESCRIPTION
-                        SET status = %s
-                        WHERE rx_id = %s
-                        RETURNING rx_id, enct_id, status;
+                        SELECT rx_id, enct_id
+                        FROM PRESCRIPTION
+                        WHERE rx_id = %s;
                         """,
-                        (status, rx_id),
+                        (rx_id,),
                     )
 
                 result = cur.fetchone()
@@ -143,7 +142,6 @@ class PrescriptionRepository:
                     SELECT
                         rx.rx_id,
                         rx.enct_id,
-                        rx.status AS prescription_status,
                         e.encounter_at,
                         e.provider_id,
                         u_provider.name AS provider_name,

@@ -1,6 +1,7 @@
 # repositories/session_repo.py
 from psycopg2.extras import RealDictCursor
 from ..pg_base import get_pg_conn
+from ..lib.period_utils import period_to_start_time, period_to_end_time, is_period_time_valid
 
 
 class SessionRepository:
@@ -11,20 +12,29 @@ class SessionRepository:
         """
         列出某位醫師的門診時段，可用日期區間與門診狀態過濾。
         回傳每個 session 目前已掛號人數 booked_count。
-        自動將已過 end_time 的 session status 更新為 0（停診）。
+        自動將已過期的 session status 更新為 0（停診）。
         """
         conn = get_pg_conn()
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # 先自動更新已過期的 session status
+                # 先自動更新已過期的 session status（使用 period 計算結束時間）
                 cur.execute(
                     """
                     UPDATE CLINIC_SESSION
                     SET status = 0
                     WHERE provider_id = %s
                       AND status = 1
-                      AND (date < CURRENT_DATE 
-                           OR (date = CURRENT_DATE AND end_time < CURRENT_TIME));
+                      AND (
+                          date < CURRENT_DATE 
+                          OR (
+                              date = CURRENT_DATE 
+                              AND (
+                                  (period = 1 AND CURRENT_TIME >= TIME '12:00:00')
+                                  OR (period = 2 AND CURRENT_TIME >= TIME '17:00:00')
+                                  OR (period = 3 AND CURRENT_TIME >= TIME '21:00:00')
+                              )
+                          )
+                      );
                     """,
                     (provider_user_id,)
                 )
@@ -51,8 +61,7 @@ class SessionRepository:
                         cs.session_id,
                         cs.provider_id,
                         cs.date,
-                        cs.start_time,
-                        cs.end_time,
+                        cs.period,
                         cs.capacity,
                         cs.status,
                         COUNT(CASE WHEN COALESCE(ash_latest.to_status, 1) != 0 THEN a.appt_id END) AS booked_count
@@ -69,23 +78,27 @@ class SessionRepository:
                     GROUP BY cs.session_id,
                              cs.provider_id,
                              cs.date,
-                             cs.start_time,
-                             cs.end_time,
+                             cs.period,
                              cs.capacity,
                              cs.status
-                    ORDER BY cs.date, cs.start_time;
+                    ORDER BY cs.date, cs.period;
                     """,
                     params,
                 )
-                return cur.fetchall()
+                rows = cur.fetchall()
+                # 為每個 session 添加計算的 start_time 和 end_time（用於向後兼容）
+                for row in rows:
+                    row["start_time"] = period_to_start_time(row["period"])
+                    row["end_time"] = period_to_end_time(row["period"])
+                return rows
         finally:
             conn.close()
 
     @staticmethod
-    def create_clinic_session(provider_user_id, date_, start_time_, end_time_, capacity):
+    def create_clinic_session(provider_user_id, date_, period, capacity):
         """
         醫師新增門診時段。
-        status 預設為 1（例如：尚未開始）。
+        status 預設為 1（開診）。
         """
         conn = get_pg_conn()
         try:
@@ -93,22 +106,27 @@ class SessionRepository:
                 cur.execute(
                     """
                     INSERT INTO CLINIC_SESSION (
-                        provider_id, date, start_time, end_time, capacity, status
+                        provider_id, date, period, capacity, status
                     )
-                    VALUES (%s, %s, %s, %s, %s, 1)
-                    RETURNING session_id, provider_id, date, start_time, end_time, capacity, status;
+                    VALUES (%s, %s, %s, %s, 1)
+                    RETURNING session_id, provider_id, date, period, capacity, status;
                     """,
-                    (provider_user_id, date_, start_time_, end_time_, capacity),
+                    (provider_user_id, date_, period, capacity),
                 )
+                row = cur.fetchone()
                 conn.commit()
-                return cur.fetchone()
+                # 添加計算的 start_time 和 end_time（用於向後兼容）
+                if row:
+                    row["start_time"] = period_to_start_time(row["period"])
+                    row["end_time"] = period_to_end_time(row["period"])
+                return row
         finally:
             conn.close()
 
     @staticmethod
-    def update_clinic_session(provider_user_id, session_id, date_, start_time_, end_time_, capacity, status):
+    def update_clinic_session(provider_user_id, session_id, date_, period, capacity, status):
         """
-        醫師更新自己的門診時段（日期、時間、人數上限、狀態）。
+        醫師更新自己的門診時段（日期、時段、人數上限、狀態）。
         """
         conn = get_pg_conn()
         try:
@@ -117,18 +135,21 @@ class SessionRepository:
                     """
                     UPDATE CLINIC_SESSION
                     SET date       = %s,
-                        start_time = %s,
-                        end_time   = %s,
+                        period     = %s,
                         capacity   = %s,
                         status     = %s
                     WHERE session_id = %s
                       AND provider_id = %s
-                    RETURNING session_id, provider_id, date, start_time, end_time, capacity, status;
+                    RETURNING session_id, provider_id, date, period, capacity, status;
                     """,
-                    (date_, start_time_, end_time_, capacity, status, session_id, provider_user_id),
+                    (date_, period, capacity, status, session_id, provider_user_id),
                 )
                 row = cur.fetchone()
                 conn.commit()
+                # 添加計算的 start_time 和 end_time（用於向後兼容）
+                if row:
+                    row["start_time"] = period_to_start_time(row["period"])
+                    row["end_time"] = period_to_end_time(row["period"])
                 return row
         finally:
             conn.close()
@@ -160,20 +181,29 @@ class SessionRepository:
     def get_session_by_id(session_id):
         """
         根據 session_id 取得門診時段資訊，包含 provider 和 department 資訊。
-        自動將已過 end_time 的 session status 更新為 0（停診）。
+        自動將已過期的 session status 更新為 0（停診）。
         """
         conn = get_pg_conn()
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # 先自動更新已過期的 session status
+                # 先自動更新已過期的 session status（使用 period 計算結束時間）
                 cur.execute(
                     """
                     UPDATE CLINIC_SESSION
                     SET status = 0
                     WHERE session_id = %s
                       AND status = 1
-                      AND (date < CURRENT_DATE 
-                           OR (date = CURRENT_DATE AND end_time < CURRENT_TIME));
+                      AND (
+                          date < CURRENT_DATE 
+                          OR (
+                              date = CURRENT_DATE 
+                              AND (
+                                  (period = 1 AND CURRENT_TIME >= TIME '12:00:00')
+                                  OR (period = 2 AND CURRENT_TIME >= TIME '17:00:00')
+                                  OR (period = 3 AND CURRENT_TIME >= TIME '21:00:00')
+                              )
+                          )
+                      );
                     """,
                     (session_id,)
                 )
@@ -185,8 +215,7 @@ class SessionRepository:
                         cs.session_id,
                         cs.provider_id,
                         cs.date,
-                        cs.start_time,
-                        cs.end_time,
+                        cs.period,
                         cs.capacity,
                         cs.status,
                         pr.dept_id,
@@ -202,7 +231,12 @@ class SessionRepository:
                     """,
                     (session_id,),
                 )
-                return cur.fetchone()
+                row = cur.fetchone()
+                # 添加計算的 start_time 和 end_time（用於向後兼容）
+                if row:
+                    row["start_time"] = period_to_start_time(row["period"])
+                    row["end_time"] = period_to_end_time(row["period"])
+                return row
         finally:
             conn.close()
 
@@ -246,38 +280,22 @@ class SessionRepository:
             conn.close()
 
     @staticmethod
-    def is_session_time_valid(session_id):
+    def is_session_time_valid(session_date, period):
         """
-        檢查門診時段是否在時間範圍內（當前時間在 start_time 和 end_time 之間）。
+        檢查門診時段是否在時間範圍內（當前時間在該 period 的時間範圍內）。
         回傳 (is_valid, session_info) 元組。
         """
-        from datetime import datetime, date, time
         conn = get_pg_conn()
         try:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute(
-                    """
-                    SELECT session_id, date, start_time, end_time
-                    FROM CLINIC_SESSION
-                    WHERE session_id = %s;
-                    """,
-                    (session_id,),
-                )
-                session = cur.fetchone()
-                if session is None:
-                    return False, None
-                
-                session_date = session["date"]
-                start_time = session["start_time"]
-                end_time = session["end_time"]
-                
-                # 檢查當前時間是否在門診時間範圍內
-                now = datetime.now()
-                session_start = datetime.combine(session_date, start_time)
-                session_end = datetime.combine(session_date, end_time)
-                
-                is_valid = session_start <= now <= session_end
-                return is_valid, session
+            is_valid = is_period_time_valid(session_date, period)
+            # 返回 session_info（包含計算的時間）
+            session_info = {
+                "date": session_date,
+                "period": period,
+                "start_time": period_to_start_time(period),
+                "end_time": period_to_end_time(period),
+            }
+            return is_valid, session_info
         finally:
             conn.close()
 
@@ -323,7 +341,7 @@ class SessionRepository:
         """
         搜尋門診時段，可根據科別、醫師、日期過濾。
         回傳每個 session 的資訊，包含 provider 和 department 資訊，以及已預約人數。
-        自動將已過 end_time 的 session status 更新為 0（停診）。
+        自動將已過期的 session status 更新為 0（停診）。
         
         注意：門診的科別（dept_name）來自該門診醫師的科別。
         查詢邏輯：CLINIC_SESSION → PROVIDER (provider_id) → DEPARTMENT (dept_id)
@@ -331,15 +349,23 @@ class SessionRepository:
         conn = get_pg_conn()
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # 先自動更新已過期的 session status
-                from datetime import datetime, date as date_type
+                # 先自動更新已過期的 session status（使用 period 計算結束時間）
                 cur.execute(
                     """
                     UPDATE CLINIC_SESSION
                     SET status = 0
                     WHERE status = 1
-                      AND (date < CURRENT_DATE 
-                           OR (date = CURRENT_DATE AND end_time < CURRENT_TIME));
+                      AND (
+                          date < CURRENT_DATE 
+                          OR (
+                              date = CURRENT_DATE 
+                              AND (
+                                  (period = 1 AND CURRENT_TIME >= TIME '12:00:00')
+                                  OR (period = 2 AND CURRENT_TIME >= TIME '17:00:00')
+                                  OR (period = 3 AND CURRENT_TIME >= TIME '21:00:00')
+                              )
+                          )
+                      );
                     """
                 )
                 conn.commit()
@@ -370,8 +396,7 @@ class SessionRepository:
                         cs.session_id,
                         cs.provider_id,
                         cs.date,
-                        cs.start_time,
-                        cs.end_time,
+                        cs.period,
                         cs.capacity,
                         cs.status,
                         pr.dept_id,
@@ -396,8 +421,7 @@ class SessionRepository:
                     GROUP BY cs.session_id,
                              cs.provider_id,
                              cs.date,
-                             cs.start_time,
-                             cs.end_time,
+                             cs.period,
                              cs.capacity,
                              cs.status,
                              pr.dept_id,
@@ -405,11 +429,16 @@ class SessionRepository:
                              pr.license_no,
                              d.name,
                              d.location
-                    ORDER BY cs.date, cs.start_time;
+                    ORDER BY cs.date, cs.period;
                     """,
                     params,
                 )
-                return cur.fetchall()
+                rows = cur.fetchall()
+                # 為每個 session 添加計算的 start_time 和 end_time（用於向後兼容）
+                for row in rows:
+                    row["start_time"] = period_to_start_time(row["period"])
+                    row["end_time"] = period_to_end_time(row["period"])
+                return rows
         finally:
             conn.close()
 
@@ -430,8 +459,17 @@ class SessionRepository:
                         SET status = 0
                         WHERE provider_id = %s
                           AND status = 1
-                          AND (date < CURRENT_DATE 
-                               OR (date = CURRENT_DATE AND end_time < CURRENT_TIME));
+                          AND (
+                              date < CURRENT_DATE 
+                              OR (
+                                  date = CURRENT_DATE 
+                                  AND (
+                                      (period = 1 AND CURRENT_TIME >= TIME '12:00:00')
+                                      OR (period = 2 AND CURRENT_TIME >= TIME '17:00:00')
+                                      OR (period = 3 AND CURRENT_TIME >= TIME '21:00:00')
+                                  )
+                              )
+                          );
                         """,
                         (provider_id,)
                     )
@@ -441,8 +479,17 @@ class SessionRepository:
                         UPDATE CLINIC_SESSION
                         SET status = 0
                         WHERE status = 1
-                          AND (date < CURRENT_DATE 
-                               OR (date = CURRENT_DATE AND end_time < CURRENT_TIME));
+                          AND (
+                              date < CURRENT_DATE 
+                              OR (
+                                  date = CURRENT_DATE 
+                                  AND (
+                                      (period = 1 AND CURRENT_TIME >= TIME '12:00:00')
+                                      OR (period = 2 AND CURRENT_TIME >= TIME '17:00:00')
+                                      OR (period = 3 AND CURRENT_TIME >= TIME '21:00:00')
+                                  )
+                              )
+                          );
                         """
                     )
                 updated_count = cur.rowcount

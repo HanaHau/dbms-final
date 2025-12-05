@@ -204,8 +204,7 @@ export const providerApi = {
     providerId: number,
     data: {
       date: string;
-      start_time: string;
-      end_time: string;
+      period: number;  // 1=早診, 2=午診, 3=晚診
       capacity: number;
     }
   ) => {
@@ -222,8 +221,7 @@ export const providerApi = {
     sessionId: number,
     data: {
       date: string;
-      start_time: string;
-      end_time: string;
+      period: number;  // 1=早診, 2=午診, 3=晚診
       capacity: number;
       status?: number;
     }
@@ -326,7 +324,6 @@ export const providerApi = {
     providerId: number,
     enctId: number,
     data: {
-      status: number;
       items: Array<{
         med_id: number;
         dosage?: string;

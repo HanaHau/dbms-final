@@ -66,8 +66,17 @@ async def startup_event():
                         LIMIT 1
                     ) AS ash_latest ON TRUE
                     WHERE COALESCE(ash_latest.to_status, 1) IN (1, 5)  -- 已預約或未報到
-                      AND (cs.date < CURRENT_DATE 
-                           OR (cs.date = CURRENT_DATE AND cs.end_time < CURRENT_TIME))
+                      AND (
+                          cs.date < CURRENT_DATE 
+                          OR (
+                              cs.date = CURRENT_DATE 
+                              AND (
+                                  (cs.period = 1 AND CURRENT_TIME >= TIME '12:00:00')
+                                  OR (cs.period = 2 AND CURRENT_TIME >= TIME '17:00:00')
+                                  OR (cs.period = 3 AND CURRENT_TIME >= TIME '21:00:00')
+                              )
+                          )
+                      )
                       AND NOT EXISTS (
                           -- 排除已經處理過的（已經有就診記錄的）
                           SELECT 1 FROM ENCOUNTER e WHERE e.appt_id = a.appt_id
@@ -105,8 +114,38 @@ async def startup_event():
                             conn, appt_id, current_status, 5, provider_id
                         )
                         
-                        # 累計爽約次數
-                        PatientRepository.increment_no_show_count(patient_id)
+                        # 累計爽約次數（使用現有連接）
+                        from datetime import date, timedelta
+                        cur.execute(
+                            """
+                            SELECT COALESCE(no_show_count, 0) AS no_show_count
+                            FROM PATIENT
+                            WHERE user_id = %s;
+                            """,
+                            (patient_id,),
+                        )
+                        patient_row = cur.fetchone()
+                        if patient_row:
+                            new_count = (patient_row["no_show_count"] or 0) + 1
+                            if new_count >= 3:
+                                banned_until = date.today() + timedelta(days=14)
+                                cur.execute(
+                                    """
+                                    UPDATE PATIENT
+                                    SET no_show_count = %s, banned_until = %s
+                                    WHERE user_id = %s;
+                                    """,
+                                    (new_count, banned_until, patient_id),
+                                )
+                            else:
+                                cur.execute(
+                                    """
+                                    UPDATE PATIENT
+                                    SET no_show_count = %s
+                                    WHERE user_id = %s;
+                                    """,
+                                    (new_count, patient_id),
+                                )
                     
                     processed_count += 1
                 

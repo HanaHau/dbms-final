@@ -5,6 +5,7 @@ import { providerApi } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { Layout } from '../../components/Layout';
 import type { ClinicSession } from '../../types';
+import { getPeriodName, periodToTimeRange, periodToStartTime, periodToEndTime } from '../../lib/periodUtils';
 import './ProviderSessions.css';
 
 export const ProviderSessions: React.FC = () => {
@@ -21,8 +22,7 @@ export const ProviderSessions: React.FC = () => {
   });
   const [formData, setFormData] = useState({
     date: '',
-    start_time: '',
-    end_time: '',
+    period: 1 as 1 | 2 | 3,  // 1=早診, 2=午診, 3=晚診
     capacity: 10,
     status: 1,
   });
@@ -60,8 +60,7 @@ export const ProviderSessions: React.FC = () => {
     try {
       await providerApi.createSession(user.user_id, {
         date: formData.date,
-        start_time: formData.start_time,
-        end_time: formData.end_time,
+        period: formData.period,
         capacity: formData.capacity,
       });
       alert('建立成功！');
@@ -100,8 +99,7 @@ export const ProviderSessions: React.FC = () => {
   const resetForm = () => {
     setFormData({
       date: '',
-      start_time: '',
-      end_time: '',
+      period: 1,
       capacity: 10,
       status: 1,
     });
@@ -113,8 +111,7 @@ export const ProviderSessions: React.FC = () => {
     setEditingId(session.session_id);
     setFormData({
       date: session.date,
-      start_time: session.start_time,
-      end_time: session.end_time,
+      period: session.period,
       capacity: session.capacity,
       status: session.status,
     });
@@ -140,8 +137,8 @@ export const ProviderSessions: React.FC = () => {
 
       // 正常狀態的門診
       const sessionDate = session.date;
-      const sessionStartTime = session.start_time.substring(0, 5); // HH:MM
-      const sessionEndTime = session.end_time.substring(0, 5); // HH:MM
+      const sessionStartTime = periodToStartTime(session.period); // 從 period 計算
+      const sessionEndTime = periodToEndTime(session.period); // 從 period 計算
 
       // 正在看診：今天且當前時間在 start_time 和 end_time 之間
       if (sessionDate === currentDate && 
@@ -160,12 +157,12 @@ export const ProviderSessions: React.FC = () => {
       }
     });
 
-    // 未來門診依時間排序（先日期，再開始時間）
+    // 未來門診依時間排序（先日期，再 period）
     upcoming.sort((a, b) => {
       if (a.date !== b.date) {
         return a.date.localeCompare(b.date);
       }
-      return a.start_time.localeCompare(b.start_time);
+      return a.period - b.period;
     });
 
     return { active, upcoming, cancelled };
@@ -218,22 +215,16 @@ export const ProviderSessions: React.FC = () => {
                 />
               </div>
               <div className="form-group">
-                <label>開始時間</label>
-                <input
-                  type="time"
-                  value={formData.start_time}
-                  onChange={(e) => setFormData({ ...formData, start_time: e.target.value })}
+                <label>時段</label>
+                <select
+                  value={formData.period}
+                  onChange={(e) => setFormData({ ...formData, period: parseInt(e.target.value, 10) as 1 | 2 | 3 })}
                   required
-                />
-              </div>
-              <div className="form-group">
-                <label>結束時間</label>
-                <input
-                  type="time"
-                  value={formData.end_time}
-                  onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
-                  required
-                />
+                >
+                  <option value="1">早診 (09:00-12:00)</option>
+                  <option value="2">午診 (14:00-17:00)</option>
+                  <option value="3">晚診 (18:00-21:00)</option>
+                </select>
               </div>
               <div className="form-group">
                 <label>人數上限</label>
@@ -286,13 +277,6 @@ export const ProviderSessions: React.FC = () => {
             (() => {
               const { active, upcoming, cancelled } = categorizeSessions(sessions);
               
-              // 格式化時間，只顯示時分
-              const formatTime = (timeStr: string) => {
-                if (!timeStr) return '';
-                const time = timeStr.split(':');
-                return `${time[0]}:${time[1]}`;
-              };
-
               // 渲染門診時段表格
               const renderSessionTable = (sessionList: ClinicSession[], title: string) => {
                 if (sessionList.length === 0) return null;
@@ -304,6 +288,7 @@ export const ProviderSessions: React.FC = () => {
                       <thead>
                         <tr>
                           <th>日期</th>
+                          <th>時段</th>
                           <th>時間</th>
                           <th>人數上限</th>
                           <th>已預約</th>
@@ -315,8 +300,9 @@ export const ProviderSessions: React.FC = () => {
                         {sessionList.map((session) => (
                           <tr key={session.session_id}>
                             <td>{session.date}</td>
+                            <td>{getPeriodName(session.period)}</td>
                             <td className="time-cell">
-                              {formatTime(session.start_time)} - {formatTime(session.end_time)}
+                              {periodToTimeRange(session.period)}
                             </td>
                             <td>{session.capacity}</td>
                             <td>{session.booked_count || 0}</td>

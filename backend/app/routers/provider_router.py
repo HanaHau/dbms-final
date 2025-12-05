@@ -33,8 +33,7 @@ class ProviderLoginResponse(BaseModel):
 
 class SessionCreateUpdate(BaseModel):
     date: date
-    start_time: time
-    end_time: time
+    period: int  # 1=早診(09:00-12:00), 2=午診(14:00-17:00), 3=晚診(18:00-21:00)
     capacity: int
     status: Optional[int] = 1  # 新增時可忽略，更新時可用
 
@@ -64,7 +63,6 @@ class PrescriptionItem(BaseModel):
 
 
 class PrescriptionUpsert(BaseModel):
-    status: int
     items: List[PrescriptionItem]
 
 
@@ -145,8 +143,7 @@ def api_create_session(provider_id: int, body: SessionCreateUpdate):
     return service.create_session(
         provider_id=provider_id,
         date_=body.date,
-        start_time_=body.start_time,
-        end_time_=body.end_time,
+        period=body.period,
         capacity=body.capacity,
     )
 
@@ -160,8 +157,7 @@ def api_update_session(provider_id: int, session_id: int, body: SessionCreateUpd
         provider_id=provider_id,
         session_id=session_id,
         date_=body.date,
-        start_time_=body.start_time,
-        end_time_=body.end_time,
+        period=body.period,
         capacity=body.capacity,
         status=body.status,
     )
@@ -270,7 +266,6 @@ def api_upsert_rx(provider_id: int, enct_id: int, body: PrescriptionUpsert):
     """新增或更新處方箋"""
     return service.upsert_prescription(
         enct_id=enct_id,
-        status=body.status,
         items=body.items,
     )
 

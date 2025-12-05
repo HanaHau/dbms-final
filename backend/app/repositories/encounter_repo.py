@@ -242,8 +242,7 @@ class EncounterRepository:
                         a.patient_id,
                         a.session_id,
                         cs.date AS session_date,
-                        cs.start_time AS session_start_time,
-                        cs.end_time AS session_end_time,
+                        cs.period AS session_period,
                         u_provider.name AS provider_name,
                         pr.dept_id,
                         d.name AS department_name
@@ -258,6 +257,14 @@ class EncounterRepository:
                     """,
                     params,
                 )
+                rows = cur.fetchall()
+                # 為每個 encounter 添加計算的 start_time 和 end_time（用於向後兼容）
+                from ..lib.period_utils import period_to_start_time, period_to_end_time
+                for row in rows:
+                    if row.get("session_period"):
+                        row["session_start_time"] = period_to_start_time(row["session_period"])
+                        row["session_end_time"] = period_to_end_time(row["session_period"])
+                return rows
                 return cur.fetchall()
         finally:
             conn.close()

@@ -29,8 +29,9 @@ export interface ClinicSession {
   dept_id?: number;
   dept_name?: string;
   date: string;
-  start_time: string;
-  end_time: string;
+  period: number;  // 1=早診(09:00-12:00), 2=午診(14:00-17:00), 3=晚診(18:00-21:00)
+  start_time?: string;  // 向後兼容，由 period 計算得出
+  end_time?: string;    // 向後兼容，由 period 計算得出
   capacity: number;
   booked_count: number;  // 後端返回的是 booked_count
   status: number;
@@ -81,9 +82,8 @@ export interface PrescriptionItem {
 }
 
 export interface Prescription {
-  presc_id: number;
+  rx_id: number;
   enct_id: number;
-  status: number;
   items: PrescriptionItem[];
 }
 

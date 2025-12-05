@@ -19,7 +19,7 @@ class AppointmentService:
         - slot_seq = 已掛號人數 + 1
         - 寫入 APPOINTMENT_STATUS_HISTORY
         """
-        from ..repositories import PatientRepository
+        from ...repositories import PatientRepository
         
         # 檢查病人是否被禁止掛號
         is_banned, banned_until = PatientRepository.is_patient_banned(patient_id)
@@ -141,7 +141,7 @@ class AppointmentService:
         - 更新狀態為「已報到」（狀態 2 = 已報到）
         - 寫入 APPOINTMENT_STATUS_HISTORY
         """
-        from ..repositories import SessionRepository
+        from ...repositories import SessionRepository
         
         # 獲取 appointment 的 session_id
         appointment = self.appointment_repo.get_appointment_by_id(appt_id)
@@ -153,8 +153,19 @@ class AppointmentService:
         
         session_id = appointment["session_id"]
         
+        # 獲取 session 資訊
+        session_info = SessionRepository.get_session_by_id(session_id)
+        if session_info is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Session not found"
+            )
+        
         # 檢查門診時間是否在範圍內
-        is_valid, session_info = SessionRepository.is_session_time_valid(session_id)
+        is_valid, _ = SessionRepository.is_session_time_valid(
+            session_info["date"], 
+            session_info["period"]
+        )
         if not is_valid:
             raise HTTPException(
                 status_code=400,

@@ -225,6 +225,7 @@ class AppointmentRepository:
         包含：掛號 ID、門診時段資訊、slot_seq、目前掛號狀態。
         狀態來自 APPOINTMENT_STATUS_HISTORY 最新一筆 to_status。
         """
+        from ..lib.period_utils import period_to_start_time, period_to_end_time
         conn = get_pg_conn()
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -236,8 +237,7 @@ class AppointmentRepository:
                         a.patient_id,
                         a.session_id,
                         cs.date AS session_date,
-                        cs.start_time AS session_start_time,
-                        cs.end_time AS session_end_time,
+                        cs.period AS session_period,
                         cs.provider_id,
                         u_provider.name AS provider_name,
                         pr.dept_id,
@@ -261,11 +261,16 @@ class AppointmentRepository:
                     ORDER BY 
                         ash_latest.changed_at DESC NULLS LAST,
                         cs.date DESC,
-                        cs.start_time DESC;
+                        cs.period DESC;
                     """,
                     (patient_id,),
                 )
-                return cur.fetchall()
+                rows = cur.fetchall()
+                # 從 period 計算 start_time 和 end_time
+                for row in rows:
+                    row["session_start_time"] = period_to_start_time(row["session_period"])
+                    row["session_end_time"] = period_to_end_time(row["session_period"])
+                return rows
         finally:
             conn.close()
 
@@ -367,7 +372,7 @@ class AppointmentRepository:
                 # 檢查 session 容量並鎖定 session 記錄，避免併行衝突
                 cur.execute(
                     """
-                    SELECT capacity, provider_id, date, end_time, status
+                    SELECT capacity, provider_id, date, period, status
                     FROM CLINIC_SESSION
                     WHERE session_id = %s
                     FOR UPDATE;
@@ -382,7 +387,7 @@ class AppointmentRepository:
                 capacity = session_row["capacity"]
                 provider_id = session_row["provider_id"]
                 session_date = session_row["date"]
-                session_end_time = session_row["end_time"]
+                session_period = session_row["period"]
                 session_status = session_row["status"]
 
                 # 檢查 session 狀態
@@ -392,8 +397,10 @@ class AppointmentRepository:
 
                 # 檢查是否已過門診時間，如果已過則自動更新 status 為 0（停診）
                 from datetime import datetime, date, time
+                from ..lib.period_utils import period_to_end_time, is_period_time_valid
                 now = datetime.now()
-                session_datetime = datetime.combine(session_date, session_end_time)
+                end_time = period_to_end_time(session_period)
+                session_datetime = datetime.combine(session_date, end_time)
                 if now > session_datetime:
                     # 自動將 status 更新為 0（停診）
                     cur.execute(
