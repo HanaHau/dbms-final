@@ -106,7 +106,17 @@ export const ProviderEncounter: React.FC = () => {
         console.error('獲取掛號資訊失敗:', err);
       }
 
-      const enct = await providerApi.getEncounter(user.user_id, parseInt(apptId));
+      // 嘗試獲取就診記錄，如果不存在則為 null
+      let enct = null;
+      try {
+        enct = await providerApi.getEncounter(user.user_id, parseInt(apptId));
+      } catch (err: any) {
+        // 如果 encounter 不存在（404），這是正常的，允許建立新的 encounter
+        if (err.response?.status !== 404) {
+          console.error('獲取就診記錄失敗:', err);
+        }
+      }
+      
       setEncounter(enct);
       if (enct) {
         setEncounterForm({
@@ -128,15 +138,21 @@ export const ProviderEncounter: React.FC = () => {
         setDiagnoses(diags);
         setPrescription(presc);
         if (presc) {
-          // 如果處方已存在，載入處方項目（presc.items 應該包含 med_name）
-          setPrescriptionForm({ items: (presc.items || []).map((item: any) => ({
-            med_id: item.med_id,
-            med_name: item.med_name || '',
-            dosage: item.dosage || '',
-            frequency: item.frequency || '',
-            days: item.days || 0,
-            quantity: item.quantity || 0,
-          })) });
+          // 如果處方已存在且是草稿狀態（status = 1），載入處方項目到表單
+          // 如果處方已定稿（status = 2），不載入到表單（因為不能修改）
+          if (presc.status === 1) {
+            setPrescriptionForm({ items: (presc.items || []).map((item: any) => ({
+              med_id: item.med_id,
+              med_name: item.med_name || '',
+              dosage: item.dosage || '',
+              frequency: item.frequency || '',
+              days: item.days || 0,
+              quantity: item.quantity || 0,
+            })) });
+          } else {
+            // 處方已定稿，清空表單
+            setPrescriptionForm({ items: [] });
+          }
         } else {
           // 如果處方不存在，重置為空
           setPrescriptionForm({ items: [] });
@@ -329,8 +345,7 @@ export const ProviderEncounter: React.FC = () => {
     }
   };
 
-  const handleAddPrescriptionItem = async () => {
-    if (!user) return;
+  const handleAddPrescriptionItem = () => {
     if (!encounter) {
       alert('請先建立就診記錄');
       setActiveTab('encounter');
@@ -340,66 +355,41 @@ export const ProviderEncounter: React.FC = () => {
       alert('請選擇藥品');
       return;
     }
-    try {
-      // 將當前項目添加到列表（只傳送 med_id 給後端，但保留 med_name 用於顯示）
-      const newItems = [...prescriptionForm.items, { ...currentPrescriptionItem }];
-      
-      await providerApi.upsertPrescription(user.user_id, encounter.enct_id, {
-        items: newItems.map(item => ({
-          med_id: item.med_id,
-          dosage: item.dosage,
-          frequency: item.frequency,
-          days: item.days,
-          quantity: item.quantity,
-        })),
-      });
-      
-      // 更新本地狀態
-      setPrescriptionForm({ items: newItems });
-      
-      // 重置當前表單
-      setCurrentPrescriptionItem({
-        med_id: 0,
-        med_name: '',
-        dosage: '',
-        frequency: '',
-        days: 0,
-        quantity: 0,
-      });
-      setMedicationSearchQuery('');
-      setSelectedMedication(null);
-      setMedicationOptions([]);
-      
-      alert('新增處方項目成功！');
-      loadData();
-    } catch (err: any) {
-      alert(err.response?.data?.detail || '新增失敗');
+    // 檢查處方是否已定稿
+    if (prescription && prescription.status === 2) {
+      alert('處方已開立，無法新增藥品');
+      return;
     }
+    
+    // 將當前項目添加到本地列表（不立即保存）
+    const newItems = [...prescriptionForm.items, { ...currentPrescriptionItem }];
+    setPrescriptionForm({ items: newItems });
+    
+    // 重置當前表單
+    setCurrentPrescriptionItem({
+      med_id: 0,
+      med_name: '',
+      dosage: '',
+      frequency: '',
+      days: 0,
+      quantity: 0,
+    });
+    setMedicationSearchQuery('');
+    setSelectedMedication(null);
+    setMedicationOptions([]);
   };
 
-  const handleRemovePrescriptionItem = async (index: number) => {
-    if (!user || !encounter) return;
-    if (!confirm('確定要刪除此處方項目嗎？')) return;
-    
-    try {
-      const newItems = prescriptionForm.items.filter((_, i) => i !== index);
-      
-      await providerApi.upsertPrescription(user.user_id, encounter.enct_id, {
-        items: newItems.map(item => ({
-          med_id: item.med_id,
-          dosage: item.dosage,
-          frequency: item.frequency,
-          days: item.days,
-          quantity: item.quantity,
-        })),
-      });
-      
-      setPrescriptionForm({ items: newItems });
-      alert('刪除處方項目成功！');
-      loadData();
-    } catch (err: any) {
-      alert(err.response?.data?.detail || '刪除失敗');
+  const handleRemovePrescriptionItem = (index: number) => {
+    if (!encounter) return;
+    // 檢查處方是否已定稿
+    if (prescription && prescription.status === 2) {
+      alert('處方已開立，無法刪除藥品');
+      return;
     }
+    
+    // 從本地列表中移除項目（不立即保存）
+    const newItems = prescriptionForm.items.filter((_, i) => i !== index);
+    setPrescriptionForm({ items: newItems });
   };
 
   const handleFinalizePrescription = async () => {
@@ -408,10 +398,10 @@ export const ProviderEncounter: React.FC = () => {
       alert('請至少新增一個處方項目');
       return;
     }
-    if (!confirm('確定要開立處方嗎？開立後將無法修改。')) return;
+    if (!confirm('確定要開立處方嗎？開立後將無法新增或修改藥品。')) return;
     
     try {
-      await providerApi.upsertPrescription(user.user_id, encounter.enct_id, {
+      await providerApi.finalizePrescription(user.user_id, encounter.enct_id, {
         items: prescriptionForm.items.map(item => ({
           med_id: item.med_id,
           dosage: item.dosage,
@@ -755,12 +745,18 @@ export const ProviderEncounter: React.FC = () => {
                       </tbody>
                     </table>
                   </div>
+                  {prescription.status === 2 && (
+                    <p style={{ marginTop: '20px', color: '#666', fontStyle: 'italic' }}>
+                      處方已開立，無法新增或修改藥品。
+                    </p>
+                  )}
+                  {prescription.status === 2 && <hr style={{ margin: '20px 0' }} />}
                 </>
               )}
-              {(!prescription || !prescription.items || prescription.items.length === 0) && (
+              {(!prescription || prescription.status !== 2) && (
                 <>
                   <div className="prescription-items">
-                    <h3>{prescription ? '繼續新增處方項目' : '新增處方項目'}</h3>
+                    <h3>新增處方項目</h3>
                     <div className="prescription-item-form">
                       <div className="medication-search-container">
                         <label>藥品名稱</label>
@@ -884,49 +880,50 @@ export const ProviderEncounter: React.FC = () => {
                         </button>
                       </div>
                     </div>
+                    {prescriptionForm.items.length > 0 && (
+                      <>
+                        <div className="prescription-items-list" style={{ marginTop: '20px' }}>
+                          <h4>已新增的處方項目 ({prescriptionForm.items.length})</h4>
+                          <table className="prescription-items-table" style={{ width: '100%', marginTop: '10px' }}>
+                            <thead>
+                              <tr>
+                                <th>藥品名稱</th>
+                                <th>劑量</th>
+                                <th>頻率</th>
+                                <th>天數</th>
+                                <th>數量</th>
+                                <th>操作</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {prescriptionForm.items.map((item, idx) => (
+                                <tr key={idx}>
+                                  <td>{item.med_name || item.med_id}</td>
+                                  <td>{item.dosage || '-'}</td>
+                                  <td>{item.frequency || '-'}</td>
+                                  <td>{item.days}</td>
+                                  <td>{item.quantity}</td>
+                                  <td>
+                                    <button
+                                      className="btn-small btn-danger"
+                                      onClick={() => handleRemovePrescriptionItem(idx)}
+                                    >
+                                      刪除
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <div className="prescription-finalize-actions" style={{ marginTop: '20px' }}>
+                          <button className="btn btn-primary" onClick={handleFinalizePrescription}>
+                            開立處方
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
-                  
-                  {prescriptionForm.items.length > 0 && (
-                    <div className="prescription-items-list">
-                      <h3>已新增的處方項目 ({prescriptionForm.items.length})</h3>
-                      <table className="prescription-items-table">
-                        <thead>
-                          <tr>
-                            <th>藥品名稱</th>
-                            <th>劑量</th>
-                            <th>頻率</th>
-                            <th>天數</th>
-                            <th>數量</th>
-                            <th>操作</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {prescriptionForm.items.map((item, idx) => (
-                            <tr key={idx}>
-                              <td>{item.med_name || item.med_id}</td>
-                              <td>{item.dosage || '-'}</td>
-                              <td>{item.frequency || '-'}</td>
-                              <td>{item.days}</td>
-                              <td>{item.quantity}</td>
-                              <td>
-                                <button
-                                  className="btn-small btn-danger"
-                                  onClick={() => handleRemovePrescriptionItem(idx)}
-                                >
-                                  刪除
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                      <div className="prescription-finalize-actions">
-                        <button className="btn btn-primary" onClick={handleFinalizePrescription}>
-                          開立處方
-                        </button>
-                      </div>
-                    </div>
-                  )}
                 </>
               )}
             </div>

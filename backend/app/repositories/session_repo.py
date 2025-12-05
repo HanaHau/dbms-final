@@ -243,7 +243,7 @@ class SessionRepository:
     @staticmethod
     def get_booked_count(session_id):
         """
-        取得某個門診時段的已預約數量。
+        取得某個門診時段的已預約數量（排除已取消的掛號）。
         如果 session 不存在，回傳 None。
         """
         conn = get_pg_conn()
@@ -259,7 +259,9 @@ class SessionRepository:
 
                 cur.execute(
                     """
-                    SELECT COUNT(CASE WHEN COALESCE(ash_latest.to_status, 1) != 0 THEN a.appt_id END) AS booked_count
+                    SELECT COUNT(CASE WHEN COALESCE(ash_latest.to_status, 1) != 0 
+                                         AND COALESCE(ash_latest.to_status, 1) != 4 
+                                    THEN a.appt_id END) AS booked_count
                     FROM CLINIC_SESSION cs
                     LEFT JOIN APPOINTMENT a ON a.session_id = cs.session_id
                     LEFT JOIN LATERAL (

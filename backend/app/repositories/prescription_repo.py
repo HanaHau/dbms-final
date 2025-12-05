@@ -16,7 +16,7 @@ class PrescriptionRepository:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute(
                     """
-                    SELECT rx_id, enct_id
+                    SELECT rx_id, enct_id, status
                     FROM PRESCRIPTION
                     WHERE enct_id = %s;
                     """,
@@ -54,36 +54,43 @@ class PrescriptionRepository:
             conn.close()
 
     @staticmethod
-    def upsert_prescription_for_encounter(enct_id):
+    def upsert_prescription_for_encounter(enct_id, status=1):
         """
         建立或更新某次就診的處方箋（只管 PRESCRIPTION；INCLUDE 由 replace_prescription_items 負責）。
+        status: 1=草稿，2=已定稿
         """
         conn = get_pg_conn()
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute(
-                    "SELECT rx_id FROM PRESCRIPTION WHERE enct_id = %s;",
+                    "SELECT rx_id, status FROM PRESCRIPTION WHERE enct_id = %s;",
                     (enct_id,),
                 )
                 row = cur.fetchone()
                 if row is None:
                     cur.execute(
                         """
-                        INSERT INTO PRESCRIPTION (enct_id)
-                        VALUES (%s)
-                        RETURNING rx_id, enct_id;
+                        INSERT INTO PRESCRIPTION (enct_id, status)
+                        VALUES (%s, %s)
+                        RETURNING rx_id, enct_id, status;
                         """,
-                        (enct_id,),
+                        (enct_id, status),
                     )
                 else:
                     rx_id = row["rx_id"]
+                    current_status = row["status"]
+                    # 如果處方已定稿（status=2），不允許修改（除非是要定稿，但這應該不會發生）
+                    if current_status == 2 and status != 2:
+                        raise Exception("處方已定稿，無法修改")
+                    # 如果處方是草稿（status=1），允許更新狀態（包括定稿為 status=2）
                     cur.execute(
                         """
-                        SELECT rx_id, enct_id
-                        FROM PRESCRIPTION
-                        WHERE rx_id = %s;
+                        UPDATE PRESCRIPTION
+                        SET status = %s
+                        WHERE rx_id = %s
+                        RETURNING rx_id, enct_id, status;
                         """,
-                        (rx_id,),
+                        (status, rx_id),
                     )
 
                 result = cur.fetchone()

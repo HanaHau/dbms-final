@@ -50,6 +50,8 @@ export interface Appointment {
   slot_seq: number;
   status: number;
   status_name: string;
+  has_encounter?: number;  // 0 或 1，表示是否有就診記錄
+  encounter_status?: number;  // 就診記錄狀態（1=草稿, 2=已定稿）
 }
 
 export interface Encounter {
@@ -84,6 +86,7 @@ export interface PrescriptionItem {
 export interface Prescription {
   rx_id: number;
   enct_id: number;
+  status?: number;  // 1=草稿，2=已定稿
   items: PrescriptionItem[];
 }
 

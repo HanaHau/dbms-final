@@ -1,5 +1,5 @@
 # routers/provider_router.py
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, HTTPException
 from datetime import date, time
 from typing import Optional, List
 from pydantic import BaseModel
@@ -263,11 +263,26 @@ def api_get_rx(provider_id: int, enct_id: int):
 
 @router.put("/{provider_id}/encounters/{enct_id}/prescription")
 def api_upsert_rx(provider_id: int, enct_id: int, body: PrescriptionUpsert):
-    """新增或更新處方箋"""
+    """新增或更新處方箋（草稿狀態）"""
     return service.upsert_prescription(
         enct_id=enct_id,
         items=body.items,
+        status=1,  # 草稿
     )
+
+
+@router.post("/{provider_id}/encounters/{enct_id}/prescription/finalize")
+def api_finalize_prescription(provider_id: int, enct_id: int, body: PrescriptionUpsert):
+    """開立處方（定稿）"""
+    try:
+        return service.finalize_prescription(
+            enct_id=enct_id,
+            items=body.items,
+        )
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error finalizing prescription: {str(e)}") from e
 
 
 @router.get("/{provider_id}/encounters/{enct_id}/lab-results")

@@ -35,8 +35,8 @@ export const PatientLogin: React.FC = () => {
     } catch (err: any) {
       // 只在開發環境顯示詳細錯誤
       if (process.env.NODE_ENV === 'development') {
-        console.error('登入錯誤:', err);
-        console.error('錯誤詳情:', err.response?.data);
+      console.error('登入錯誤:', err);
+      console.error('錯誤詳情:', err.response?.data);
       }
       const errorDetail = err.response?.data?.detail;
       if (errorDetail) {

@@ -65,8 +65,9 @@ class AppointmentRepository:
     def list_appointments_for_session(provider_user_id, session_id):
         """
         列出某個門診時段的掛號清單（只允許看自己的 session）。
-        包含：病人姓名、slot_seq、目前掛號狀態。
+        包含：病人姓名、slot_seq、目前掛號狀態、是否有就診記錄。
         狀態來自 APPOINTMENT_STATUS_HISTORY 最新一筆 to_status。
+        過濾掉已取消的掛號（狀態 4）。
         """
         conn = get_pg_conn()
         try:
@@ -78,8 +79,10 @@ class AppointmentRepository:
                         a.slot_seq,
                         a.patient_id,
                         u_pt.name AS patient_name,
-                        ash_latest.to_status AS status,
-                        ash_latest.changed_at AS status_changed_at
+                        COALESCE(ash_latest.to_status, 1) AS status,
+                        ash_latest.changed_at AS status_changed_at,
+                        CASE WHEN e.enct_id IS NOT NULL THEN 1 ELSE 0 END AS has_encounter,
+                        e.status AS encounter_status
                     FROM CLINIC_SESSION cs
                     JOIN APPOINTMENT a ON a.session_id = cs.session_id
                     JOIN PATIENT p ON a.patient_id = p.user_id
@@ -91,8 +94,10 @@ class AppointmentRepository:
                         ORDER BY ash.changed_at DESC
                         LIMIT 1
                     ) AS ash_latest ON TRUE
+                    LEFT JOIN ENCOUNTER e ON e.appt_id = a.appt_id
                     WHERE cs.session_id = %s
                       AND cs.provider_id = %s
+                      AND COALESCE(ash_latest.to_status, 1) != 4  -- 過濾掉已取消的掛號
                     ORDER BY a.slot_seq;
                     """,
                     (session_id, provider_user_id),

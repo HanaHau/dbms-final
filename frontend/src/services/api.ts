@@ -319,7 +319,7 @@ export const providerApi = {
     return response.data;
   },
 
-  // 建立/更新處方
+  // 建立/更新處方（草稿）
   upsertPrescription: async (
     providerId: number,
     enctId: number,
@@ -335,6 +335,27 @@ export const providerApi = {
   ) => {
     const response = await api.put(
       `/provider/${providerId}/encounters/${enctId}/prescription`,
+      data
+    );
+    return response.data;
+  },
+
+  // 開立處方（定稿）
+  finalizePrescription: async (
+    providerId: number,
+    enctId: number,
+    data: {
+      items: Array<{
+        med_id: number;
+        dosage?: string;
+        frequency?: string;
+        days: number;
+        quantity: number;
+      }>;
+    }
+  ) => {
+    const response = await api.post(
+      `/provider/${providerId}/encounters/${enctId}/prescription/finalize`,
       data
     );
     return response.data;

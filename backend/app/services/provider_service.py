@@ -234,6 +234,42 @@ class ProviderService:
                 detail="狀態必須為 0(停診) 或 1(開診)",
             )
         
+        # 獲取當前的 session 信息
+        current_session = self.session_repo.get_session_by_id(session_id)
+        if current_session is None:
+            raise HTTPException(
+                status_code=404, detail="Session not found"
+            )
+        
+        # 檢查 session 是否屬於該 provider
+        if current_session["provider_id"] != provider_id:
+            raise HTTPException(
+                status_code=403, detail="Session not owned by provider"
+            )
+        
+        # 獲取已掛號人數
+        booked_count = self.session_repo.get_booked_count(session_id)
+        if booked_count is None:
+            booked_count = 0
+        
+        # 驗證 capacity 不能小於已掛號人數
+        if capacity < booked_count:
+            raise HTTPException(
+                status_code=400,
+                detail=f"容量不能小於已掛號人數（目前已有 {booked_count} 人掛號）"
+            )
+        
+        # 如果有掛號，不允許修改日期和時間
+        if booked_count > 0:
+            current_date = current_session["date"]
+            current_period = current_session["period"]
+            
+            if current_date != date_ or current_period != period:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"已有 {booked_count} 人掛號，無法修改門診日期或時段"
+                )
+        
         # 檢查是否有相同時段的門診（排除自己）
         overlapping_session = self._check_period_overlap(
             provider_id=provider_id,
@@ -443,13 +479,27 @@ class ProviderService:
         # 前端已經用 .catch(() => null) 處理，但為了保持一致性，這裡也返回 None
         return rx
 
-    def upsert_prescription(self, enct_id: int, items: list):
-        """新增或更新處方箋"""
-        header = self.prescription_repo.upsert_prescription_for_encounter(enct_id)
+    def upsert_prescription(self, enct_id: int, items: list, status: int = 1):
+        """
+        新增或更新處方箋
+        status: 1=草稿，2=已定稿
+        """
+        header = self.prescription_repo.upsert_prescription_for_encounter(enct_id, status=status)
         rx_id = header["rx_id"]
         items_dicts = [item if isinstance(item, dict) else item.dict() for item in items]
         self.prescription_repo.replace_prescription_items(rx_id, items_dicts)
         return self.prescription_repo.get_prescription_for_encounter(enct_id)
+    
+    def finalize_prescription(self, enct_id: int, items: list):
+        """開立處方（定稿）"""
+        # 檢查處方是否已定稿
+        existing = self.prescription_repo.get_prescription_for_encounter(enct_id)
+        if existing and existing.get("status") == 2:
+            raise HTTPException(
+                status_code=400,
+                detail="處方已開立，無法再次開立"
+            )
+        return self.upsert_prescription(enct_id, items, status=2)
 
     def list_encounters_for_patient_by_provider(self, provider_id: int, patient_id: int):
         """醫師查詢某位病患在自己這裡的所有就診紀錄"""
