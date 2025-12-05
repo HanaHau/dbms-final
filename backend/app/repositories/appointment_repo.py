@@ -262,11 +262,15 @@ class AppointmentRepository:
                         LIMIT 1
                     ) AS ash_latest ON TRUE
                     WHERE a.patient_id = %s
-                    -- 依照「最近一次狀態異動時間」排序，若無狀態歷史則依門診日期時間
                     ORDER BY 
-                        ash_latest.changed_at DESC NULLS LAST,
-                        cs.date DESC,
-                        cs.period DESC;
+                        -- 已取消的項目排最後
+                        (COALESCE(ash_latest.to_status, 1) = 4)::int,
+                        -- 未來和今天的門診按日期時間由近到遠 (ASC)
+                        -- 過去的門診按日期時間由近到遠 (DESC)
+                        CASE WHEN cs.date >= CURRENT_DATE THEN cs.date END ASC NULLS LAST,
+                        CASE WHEN cs.date >= CURRENT_DATE THEN cs.period END ASC NULLS LAST,
+                        CASE WHEN cs.date < CURRENT_DATE THEN cs.date END DESC NULLS LAST,
+                        CASE WHEN cs.date < CURRENT_DATE THEN cs.period END DESC NULLS LAST;
                     """,
                     (patient_id,),
                 )

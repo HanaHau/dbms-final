@@ -45,6 +45,7 @@ export interface Appointment {
   session_date: string;
   session_start_time: string;
   session_end_time: string;
+  session_period?: number;  // 1=早診(09:00-12:00), 2=午診(14:00-17:00), 3=晚診(18:00-21:00)
   provider_name: string;
   dept_name: string;
   slot_seq: number;
@@ -65,12 +66,18 @@ export interface Encounter {
   plan?: string;
   encounter_at: string;
   patient_id?: number;
+  // 後端返回的額外資訊
+  provider_name?: string;
+  department_name?: string;
+  session_date?: string;
+  session_period?: number;
 }
 
 export interface Diagnosis {
   enct_id: number;
   code_icd: string;
-  disease_name: string;
+  disease_name?: string;  // 前端使用
+  description?: string;  // 後端返回的字段
   is_primary: boolean;
 }
 
@@ -117,5 +124,29 @@ export interface PatientHistory {
   prescriptions: Prescription[];
   lab_results: LabResult[];
   payments: Payment[];
+  diagnoses?: Diagnosis[];  // 可選，向後兼容
+}
+
+// 整合的就診記錄（以就診為中心）
+export interface Visit {
+  enct_id: number;
+  encounter_at: string;
+  session_date?: string;
+  session_period?: number;
+  provider_name: string;
+  department_name: string;
+  // SOAP 記錄
+  chief_complaint?: string;
+  subjective?: string;
+  assessment?: string;
+  plan?: string;
+  // 診斷
+  diagnoses: Diagnosis[];
+  // 處方
+  prescription?: Prescription;
+  // 檢驗結果
+  lab_results: LabResult[];
+  // 繳費記錄
+  payment?: Payment;
 }
 

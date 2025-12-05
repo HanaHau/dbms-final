@@ -138,12 +138,14 @@ class PrescriptionRepository:
     @staticmethod
     def list_prescriptions_for_patient(patient_id):
         """
-        查詢某位病人的所有處方箋。
+        查詢某位病人的所有處方箋（優化版本）。
         包含：處方 ID、就診 ID、用藥明細等。
+        使用批量查詢避免 N+1 問題。
         """
         conn = get_pg_conn()
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # 查詢所有處方摘要
                 cur.execute(
                     """
                     SELECT
@@ -167,30 +169,119 @@ class PrescriptionRepository:
                 )
                 prescriptions = cur.fetchall()
 
-                # 為每個處方添加用藥明細
+                if not prescriptions:
+                    return []
+
+                # 取得所有處方 ID
+                rx_ids = [rx["rx_id"] for rx in prescriptions]
+
+                # 一次查詢所有用藥明細（避免 N 次查詢）
+                cur.execute(
+                    """
+                    SELECT
+                        inc.rx_id,
+                        inc.med_id,
+                        m.name AS med_name,
+                        m.spec,
+                        m.unit,
+                        inc.dosage,
+                        inc.frequency,
+                        inc.days,
+                        inc.quantity
+                    FROM INCLUDE inc
+                    JOIN MEDICATION m ON inc.med_id = m.med_id
+                    WHERE inc.rx_id = ANY(%s)
+                    ORDER BY inc.rx_id, m.name;
+                    """,
+                    (rx_ids,),
+                )
+                all_items = cur.fetchall()
+
+                # 建立 rx_id -> items 的映射
+                items_map = {}
+                for item in all_items:
+                    rx_id = item["rx_id"]
+                    if rx_id not in items_map:
+                        items_map[rx_id] = []
+                    items_map[rx_id].append(item)
+
+                # 將用藥明細分配到對應的處方
+                for rx in prescriptions:
+                    rx["items"] = items_map.get(rx["rx_id"], [])
+
+                return prescriptions
+        finally:
+            conn.close()
+
+    @staticmethod
+    def list_prescriptions_for_encounters(enct_ids):
+        """
+        批量查詢多個就診的處方（優化版本）。
+        使用 enct_id 列表，避免重複 JOIN APPOINTMENT 表。
+        同時一次性查詢所有用藥明細，避免 N 次查詢。
+        """
+        if not enct_ids:
+            return []
+        
+        conn = get_pg_conn()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # 一次查詢所有處方摘要
+                cur.execute(
+                    """
+                    SELECT
+                        rx.rx_id,
+                        rx.enct_id,
+                        rx.status
+                    FROM PRESCRIPTION rx
+                    WHERE rx.enct_id = ANY(%s)
+                    ORDER BY rx.enct_id;
+                    """,
+                    (enct_ids,),
+                )
+                prescriptions = cur.fetchall()
+                
+                if not prescriptions:
+                    return []
+                
+                # 取得所有處方 ID
+                rx_ids = [rx["rx_id"] for rx in prescriptions]
+                
+                # 一次查詢所有用藥明細（避免 N 次查詢）
+                cur.execute(
+                    """
+                    SELECT
+                        inc.rx_id,
+                        inc.med_id,
+                        m.name AS med_name,
+                        m.spec,
+                        m.unit,
+                        inc.dosage,
+                        inc.frequency,
+                        inc.days,
+                        inc.quantity
+                    FROM INCLUDE inc
+                    JOIN MEDICATION m ON inc.med_id = m.med_id
+                    WHERE inc.rx_id = ANY(%s)
+                    ORDER BY inc.rx_id, m.name;
+                    """,
+                    (rx_ids,),
+                )
+                all_items = cur.fetchall()
+                
+                # 建立 rx_id -> items 的映射
+                items_map = {}
+                for item in all_items:
+                    rx_id = item["rx_id"]
+                    if rx_id not in items_map:
+                        items_map[rx_id] = []
+                    items_map[rx_id].append(item)
+                
+                # 將用藥明細分配到對應的處方
                 for rx in prescriptions:
                     rx_id = rx["rx_id"]
-                    cur.execute(
-                        """
-                        SELECT
-                            inc.rx_id,
-                            inc.med_id,
-                            m.name AS med_name,
-                            m.spec,
-                            m.unit,
-                            inc.dosage,
-                            inc.frequency,
-                            inc.days,
-                            inc.quantity
-                        FROM INCLUDE inc
-                        JOIN MEDICATION m ON inc.med_id = m.med_id
-                        WHERE inc.rx_id = %s
-                        ORDER BY m.name;
-                        """,
-                        (rx_id,),
-                    )
-                    rx["items"] = cur.fetchall()
-
+                    rx["items"] = items_map.get(rx_id, [])
+                
                 return prescriptions
         finally:
             conn.close()

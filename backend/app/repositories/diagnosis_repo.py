@@ -16,11 +16,18 @@ class DiagnosisRepository:
             return DiagnosisRepository._disease_desc_field
         
         with conn.cursor() as cur:
+            # 優先順序：description > desc > name > disease_name
             cur.execute("""
                 SELECT column_name 
                 FROM information_schema.columns 
                 WHERE table_name = 'disease' 
-                AND column_name IN ('description', 'name', 'disease_name')
+                AND column_name IN ('description', 'desc', 'name', 'disease_name')
+                ORDER BY CASE column_name
+                    WHEN 'description' THEN 1
+                    WHEN 'desc' THEN 2
+                    WHEN 'name' THEN 3
+                    WHEN 'disease_name' THEN 4
+                END
                 LIMIT 1;
             """)
             row = cur.fetchone()
@@ -76,7 +83,7 @@ class DiagnosisRepository:
                     SELECT
                         d.enct_id,
                         d.code_icd,
-                        dis.{desc_field} AS description,
+                        COALESCE(NULLIF(TRIM(dis.{desc_field}), ''), NULL) AS description,
                         d.is_primary,
                         e.encounter_at,
                         e.provider_id,
@@ -94,6 +101,39 @@ class DiagnosisRepository:
                     ORDER BY e.encounter_at DESC, d.is_primary DESC, d.code_icd;
                     """,
                     (patient_id,),
+                )
+                return cur.fetchall()
+        finally:
+            conn.close()
+
+    @staticmethod
+    def list_diagnoses_for_encounters(enct_ids):
+        """
+        批量查詢多個就診的診斷（優化版本）。
+        使用 enct_id 列表，避免重複 JOIN APPOINTMENT 表。
+        """
+        if not enct_ids:
+            return []
+        
+        conn = get_pg_conn()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                desc_field = DiagnosisRepository._get_disease_desc_field(conn)
+                
+                # 使用 ANY 或 IN 來批量查詢
+                cur.execute(
+                    f"""
+                    SELECT
+                        d.enct_id,
+                        d.code_icd,
+                        COALESCE(NULLIF(TRIM(dis.{desc_field}), ''), NULL) AS description,
+                        d.is_primary
+                    FROM DIAGNOSIS d
+                    JOIN DISEASE dis ON d.code_icd = dis.code_icd
+                    WHERE d.enct_id = ANY(%s)
+                    ORDER BY d.enct_id, d.is_primary DESC, d.code_icd;
+                    """,
+                    (enct_ids,),
                 )
                 return cur.fetchall()
         finally:

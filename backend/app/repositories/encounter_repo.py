@@ -251,6 +251,7 @@ class EncounterRepository:
         查詢某位病人的所有就診紀錄。
         如果提供 provider_id，則只查詢該醫師的就診紀錄。
         包含：就診 ID、掛號資訊、門診時段資訊、醫師資訊等。
+        優化版本：使用輕量查詢先取得就診列表，然後一次性查詢所有相關資料。
         """
         conn = get_pg_conn()
         try:

@@ -71,6 +71,37 @@ class PaymentRepository:
             conn.close()
 
     @staticmethod
+    def list_payments_for_encounters(enct_ids):
+        """
+        批量查詢多個就診的繳費記錄（優化版本）。
+        使用 enct_id 列表，避免重複 JOIN APPOINTMENT 表。
+        """
+        if not enct_ids:
+            return []
+        
+        conn = get_pg_conn()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        pay.payment_id,
+                        pay.enct_id,
+                        pay.amount,
+                        pay.method,
+                        pay.invoice_no,
+                        pay.paid_at
+                    FROM PAYMENT pay
+                    WHERE pay.enct_id = ANY(%s)
+                    ORDER BY pay.enct_id, pay.paid_at DESC;
+                    """,
+                    (enct_ids,),
+                )
+                return cur.fetchall()
+        finally:
+            conn.close()
+
+    @staticmethod
     def upsert_payment_for_encounter(enct_id, amount, method, invoice_no):
         """
         建立或更新某次就診的費用資料（假設一個 encounter 只會有一筆 PAYMENT）。

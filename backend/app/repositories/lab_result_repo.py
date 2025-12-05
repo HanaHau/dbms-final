@@ -80,6 +80,41 @@ class LabResultRepository:
             conn.close()
 
     @staticmethod
+    def list_lab_results_for_encounters(enct_ids):
+        """
+        批量查詢多個就診的檢驗結果（優化版本）。
+        使用 enct_id 列表，避免重複 JOIN APPOINTMENT 表。
+        """
+        if not enct_ids:
+            return []
+        
+        conn = get_pg_conn()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        lab.lab_id,
+                        lab.enct_id,
+                        lab.loinc_code,
+                        lab.item_name,
+                        lab.value,
+                        lab.unit,
+                        lab.ref_low,
+                        lab.ref_high,
+                        lab.abnormal_flag,
+                        lab.reported_at
+                    FROM LAB_RESULT lab
+                    WHERE lab.enct_id = ANY(%s)
+                    ORDER BY lab.enct_id, lab.reported_at NULLS LAST, lab.lab_id;
+                    """,
+                    (enct_ids,),
+                )
+                return cur.fetchall()
+        finally:
+            conn.close()
+
+    @staticmethod
     def add_lab_result(
         enct_id,
         loinc_code,

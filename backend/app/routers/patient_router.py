@@ -162,24 +162,18 @@ def api_reschedule_appointment(
     - 使用固定鎖序避免死鎖
     - 更新 session_id 和 slot_seq
     - 寫入 APPOINTMENT_STATUS_HISTORY
-    
-    注意：需要先查詢 appointment 獲取 old_session_id
     """
-    # 先查詢 appointment 獲取 old_session_id
-    appointments = appointment_service.list_appointments_for_patient(patient_id)
-    target_appt = None
-    for appt in appointments:
-        if appt["appt_id"] == appt_id:
-            target_appt = appt
-            break
+    # 獲取掛號資訊並驗證權限
+    from ..repositories import AppointmentRepository
+    appointment = AppointmentRepository.get_appointment_by_id(appt_id)
     
-    if target_appt is None:
+    if appointment is None or appointment["patient_id"] != patient_id:
         raise HTTPException(
             status_code=404,
             detail="Appointment not found or patient_id does not match"
         )
     
-    old_session_id = target_appt["session_id"]
+    old_session_id = appointment["session_id"]
     
     return appointment_service.modify_appointment(
         appt_id=appt_id,
@@ -237,26 +231,39 @@ def api_pay_online(
     - 更新付款方式與發票號碼
     注意：實際金額由系統計算，此處只更新付款資訊
     """
-    from ..repositories import PaymentRepository, EncounterRepository, AppointmentRepository
+    from ..repositories import PaymentRepository
+    from ..pg_base import get_pg_conn
+    from psycopg2.extras import RealDictCursor
     
     payment_repo = PaymentRepository()
-    encounter_repo = EncounterRepository()
-    appointment_repo = AppointmentRepository()
     
-    # 驗證 payment 是否存在
+    # 獲取 payment 資訊
     payment = payment_repo.get_payment_for_encounter(payment_id)
     if payment is None:
-        # payment_id 實際上是 enct_id，需要先取得 payment
         raise HTTPException(status_code=404, detail="Payment not found")
     
-    # 驗證 encounter 是否屬於該病人
     enct_id = payment["enct_id"]
-    encounters = encounter_repo.list_encounters_for_patient(patient_id)
-    if not any(e["enct_id"] == enct_id for e in encounters):
-        raise HTTPException(
-            status_code=403,
-            detail="Payment does not belong to this patient"
-        )
+    
+    # 驗證 encounter 是否屬於該病人（使用單次查詢）
+    conn = get_pg_conn()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT 1
+                FROM ENCOUNTER e
+                JOIN APPOINTMENT a ON e.appt_id = a.appt_id
+                WHERE e.enct_id = %s AND a.patient_id = %s;
+                """,
+                (enct_id, patient_id),
+            )
+            if cur.fetchone() is None:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Payment does not belong to this patient"
+                )
+    finally:
+        conn.close()
     
     # 更新付款資訊（保持原金額）
     return payment_repo.upsert_payment_for_encounter(

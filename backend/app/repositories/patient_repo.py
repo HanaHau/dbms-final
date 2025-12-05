@@ -142,7 +142,9 @@ class PatientRepository:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute(
                     """
-                    SELECT no_show_count, banned_until
+                    SELECT 
+                        COALESCE(no_show_count, 0) AS no_show_count,
+                        banned_until
                     FROM PATIENT
                     WHERE user_id = %s;
                     """,
@@ -152,40 +154,41 @@ class PatientRepository:
                 if row is None:
                     return False, None
                 
-                no_show_count = row["no_show_count"] or 0
+                no_show_count = row["no_show_count"]
                 banned_until = row["banned_until"]
                 
-                # 如果達到三次爽約
-                if no_show_count >= 3:
-                    # 如果 banned_until 為空，設置為兩週後
-                    if banned_until is None:
-                        banned_until = date.today() + timedelta(days=14)
-                        cur.execute(
-                            """
-                            UPDATE PATIENT
-                            SET banned_until = %s
-                            WHERE user_id = %s;
-                            """,
-                            (banned_until, patient_id),
-                        )
-                        conn.commit()
-                    
-                    # 檢查是否還在禁止期內
-                    if date.today() <= banned_until:
-                        return True, banned_until
-                    else:
-                        # 禁止期已過，重置爽約次數和禁止日期
-                        cur.execute(
-                            """
-                            UPDATE PATIENT
-                            SET no_show_count = 0, banned_until = NULL
-                            WHERE user_id = %s;
-                            """,
-                            (patient_id,),
-                        )
-                        conn.commit()
-                        return False, None
+                # 如果未達到三次爽約，直接返回
+                if no_show_count < 3:
+                    return False, None
                 
+                # 如果 banned_until 為空，設置為兩週後
+                if banned_until is None:
+                    banned_until = date.today() + timedelta(days=14)
+                    cur.execute(
+                        """
+                        UPDATE PATIENT
+                        SET banned_until = %s
+                        WHERE user_id = %s;
+                        """,
+                        (banned_until, patient_id),
+                    )
+                    conn.commit()
+                    return True, banned_until
+                
+                # 檢查是否還在禁止期內
+                if date.today() <= banned_until:
+                    return True, banned_until
+                
+                # 禁止期已過，重置爽約次數和禁止日期
+                cur.execute(
+                    """
+                    UPDATE PATIENT
+                    SET no_show_count = 0, banned_until = NULL
+                    WHERE user_id = %s;
+                    """,
+                    (patient_id,),
+                )
+                conn.commit()
                 return False, None
         finally:
             conn.close()
@@ -194,55 +197,32 @@ class PatientRepository:
     def increment_no_show_count(patient_id):
         """
         累計病人的爽約次數。
+        使用原子操作直接更新，避免競態條件。
         """
         from datetime import date, timedelta
         conn = get_pg_conn()
         try:
-            conn.autocommit = False
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # 獲取當前爽約次數
+                # 使用單一 UPDATE 語句原子地增加計數
+                # 使用 CASE 表達式根據新計數設置 banned_until
+                banned_until = date.today() + timedelta(days=14)
                 cur.execute(
                     """
-                    SELECT COALESCE(no_show_count, 0) AS no_show_count
-                    FROM PATIENT
-                    WHERE user_id = %s;
+                    UPDATE PATIENT
+                    SET 
+                        no_show_count = COALESCE(no_show_count, 0) + 1,
+                        banned_until = CASE 
+                            WHEN COALESCE(no_show_count, 0) + 1 >= 3 THEN %s
+                            ELSE banned_until
+                        END
+                    WHERE user_id = %s
+                    RETURNING COALESCE(no_show_count, 0) AS new_count;
                     """,
-                    (patient_id,),
+                    (banned_until, patient_id),
                 )
-                row = cur.fetchone()
-                if row is None:
-                    conn.rollback()
-                    return
-                
-                new_count = (row["no_show_count"] or 0) + 1
-                
-                # 更新爽約次數
-                # 如果達到三次，設置禁止日期為兩週後
-                if new_count >= 3:
-                    banned_until = date.today() + timedelta(days=14)
-                    cur.execute(
-                        """
-                        UPDATE PATIENT
-                        SET no_show_count = %s, banned_until = %s
-                        WHERE user_id = %s;
-                        """,
-                        (new_count, banned_until, patient_id),
-                    )
-                else:
-                    cur.execute(
-                        """
-                        UPDATE PATIENT
-                        SET no_show_count = %s
-                        WHERE user_id = %s;
-                        """,
-                        (new_count, patient_id),
-                    )
-                
                 conn.commit()
         except Exception as e:
-            if conn:
-                conn.rollback()
+            conn.rollback()
             raise e
         finally:
-            if conn:
-                conn.close()
+            conn.close()
