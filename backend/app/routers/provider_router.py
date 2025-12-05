@@ -207,6 +207,18 @@ def api_get_appointment_patient_id(provider_id: int, appt_id: int):
     return service.get_appointment_patient_id(appt_id)
 
 
+@router.post("/{provider_id}/appointments/{appt_id}/encounter/lock")
+def api_lock_encounter(provider_id: int, appt_id: int):
+    """鎖定 encounter，防止其他裝置同時編輯"""
+    return service.lock_encounter(provider_id, appt_id)
+
+
+@router.post("/{provider_id}/appointments/{appt_id}/encounter/unlock")
+def api_unlock_encounter(provider_id: int, appt_id: int):
+    """釋放 encounter 的鎖定"""
+    return service.unlock_encounter(provider_id, appt_id)
+
+
 @router.put("/{provider_id}/appointments/{appt_id}/encounter")
 def api_upsert_encounter(provider_id: int, appt_id: int, body: EncounterUpsert):
     """新增或更新就診紀錄"""

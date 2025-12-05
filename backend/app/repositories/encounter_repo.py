@@ -28,6 +28,8 @@ class EncounterRepository:
                         e.subjective,
                         e.assessment,
                         e.plan,
+                        e.locked_by,
+                        e.locked_at,
                         a.patient_id
                     FROM ENCOUNTER e
                     JOIN APPOINTMENT a ON e.appt_id = a.appt_id
@@ -159,6 +161,41 @@ class EncounterRepository:
                                 f"Appointment {appt_id} not found."
                             )
                     else:
+                        # Provider 匹配，檢查鎖定狀態
+                        cur.execute(
+                            """
+                            SELECT locked_by, locked_at
+                            FROM ENCOUNTER
+                            WHERE enct_id = %s
+                            FOR UPDATE;
+                            """,
+                            (enct_id,),
+                        )
+                        lock_row = cur.fetchone()
+                        if lock_row:
+                            locked_by = lock_row["locked_by"]
+                            locked_at = lock_row["locked_at"]
+                            
+                            # 如果被其他用戶鎖定且未過期，拒絕更新
+                            if locked_by is not None and locked_by != provider_user_id:
+                                from datetime import datetime, timedelta
+                                if locked_at is not None:
+                                    timeout_threshold = datetime.now() - timedelta(minutes=30)
+                                    if locked_at >= timeout_threshold:
+                                        conn.rollback()
+                                        raise Exception(f"Encounter is locked by another provider (provider_id: {locked_by})")
+                            
+                            # 更新鎖定時間（如果當前用戶是鎖定者）
+                            if locked_by == provider_user_id:
+                                cur.execute(
+                                    """
+                                    UPDATE ENCOUNTER
+                                    SET locked_at = NOW()
+                                    WHERE enct_id = %s;
+                                    """,
+                                    (enct_id,),
+                                )
+                        
                         # Provider 匹配，正常更新
                         cur.execute(
                             """
@@ -279,4 +316,173 @@ class EncounterRepository:
         return EncounterRepository.list_encounters_for_patient(
             patient_user_id, provider_id=provider_user_id
         )
+
+    @staticmethod
+    def lock_encounter(enct_id, provider_user_id, lock_timeout_minutes=30):
+        """
+        鎖定 encounter，防止其他用戶同時編輯。
+        lock_timeout_minutes: 鎖定超時時間（分鐘），超過此時間自動釋放鎖定
+        返回 True 如果成功獲取鎖定，False 如果已被其他用戶鎖定
+        """
+        from datetime import datetime, timedelta
+        conn = get_pg_conn()
+        try:
+            conn.autocommit = False
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # 檢查當前鎖定狀態
+                cur.execute(
+                    """
+                    SELECT locked_by, locked_at
+                    FROM ENCOUNTER
+                    WHERE enct_id = %s
+                    FOR UPDATE;
+                    """,
+                    (enct_id,),
+                )
+                row = cur.fetchone()
+                
+                if row is None:
+                    conn.rollback()
+                    return False
+                
+                locked_by = row["locked_by"]
+                locked_at = row["locked_at"]
+                
+                # 如果沒有鎖定，或者鎖定已過期，或者鎖定者是當前用戶，則獲取鎖定
+                if locked_by is None:
+                    # 沒有鎖定，獲取鎖定
+                    cur.execute(
+                        """
+                        UPDATE ENCOUNTER
+                        SET locked_by = %s, locked_at = NOW()
+                        WHERE enct_id = %s
+                        RETURNING enct_id, locked_by, locked_at;
+                        """,
+                        (provider_user_id, enct_id),
+                    )
+                    conn.commit()
+                    return True
+                elif locked_by == provider_user_id:
+                    # 當前用戶已經鎖定，更新鎖定時間
+                    cur.execute(
+                        """
+                        UPDATE ENCOUNTER
+                        SET locked_at = NOW()
+                        WHERE enct_id = %s
+                        RETURNING enct_id, locked_by, locked_at;
+                        """,
+                        (enct_id,),
+                    )
+                    conn.commit()
+                    return True
+                elif locked_at is not None:
+                    # 檢查鎖定是否過期
+                    timeout_threshold = datetime.now() - timedelta(minutes=lock_timeout_minutes)
+                    if locked_at < timeout_threshold:
+                        # 鎖定已過期，獲取鎖定
+                        cur.execute(
+                            """
+                            UPDATE ENCOUNTER
+                            SET locked_by = %s, locked_at = NOW()
+                            WHERE enct_id = %s
+                            RETURNING enct_id, locked_by, locked_at;
+                            """,
+                            (provider_user_id, enct_id),
+                        )
+                        conn.commit()
+                        return True
+                    else:
+                        # 鎖定未過期，且被其他用戶鎖定
+                        conn.rollback()
+                        return False
+                else:
+                    # locked_by 不為空但 locked_at 為空（異常情況），獲取鎖定
+                    cur.execute(
+                        """
+                        UPDATE ENCOUNTER
+                        SET locked_by = %s, locked_at = NOW()
+                        WHERE enct_id = %s
+                        RETURNING enct_id, locked_by, locked_at;
+                        """,
+                        (provider_user_id, enct_id),
+                    )
+                    conn.commit()
+                    return True
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            raise e
+        finally:
+            if conn:
+                conn.close()
+
+    @staticmethod
+    def unlock_encounter(enct_id, provider_user_id):
+        """
+        釋放 encounter 的鎖定（只有鎖定者才能釋放）。
+        返回 True 如果成功釋放，False 如果不是鎖定者
+        """
+        conn = get_pg_conn()
+        try:
+            conn.autocommit = False
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    UPDATE ENCOUNTER
+                    SET locked_by = NULL, locked_at = NULL
+                    WHERE enct_id = %s
+                      AND locked_by = %s
+                    RETURNING enct_id;
+                    """,
+                    (enct_id, provider_user_id),
+                )
+                row = cur.fetchone()
+                conn.commit()
+                return row is not None
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            raise e
+        finally:
+            if conn:
+                conn.close()
+
+    @staticmethod
+    def check_encounter_lock(enct_id, provider_user_id):
+        """
+        檢查 encounter 是否被鎖定。
+        返回 (is_locked, locked_by, locked_at) 元組
+        """
+        conn = get_pg_conn()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT locked_by, locked_at
+                    FROM ENCOUNTER
+                    WHERE enct_id = %s;
+                    """,
+                    (enct_id,),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    return (False, None, None)
+                
+                locked_by = row["locked_by"]
+                locked_at = row["locked_at"]
+                
+                # 如果鎖定者是當前用戶，視為未鎖定（可以編輯）
+                if locked_by == provider_user_id:
+                    return (False, locked_by, locked_at)
+                
+                # 檢查鎖定是否過期（30分鐘）
+                if locked_by is not None and locked_at is not None:
+                    from datetime import datetime, timedelta
+                    timeout_threshold = datetime.now() - timedelta(minutes=30)
+                    if locked_at < timeout_threshold:
+                        return (False, locked_by, locked_at)  # 鎖定已過期
+                
+                return (locked_by is not None, locked_by, locked_at)
+        finally:
+            conn.close()
 

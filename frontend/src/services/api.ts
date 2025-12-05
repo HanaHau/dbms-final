@@ -257,6 +257,22 @@ export const providerApi = {
     return response.data;
   },
 
+  // 鎖定 encounter（防止其他裝置同時編輯）
+  lockEncounter: async (providerId: number, apptId: number) => {
+    const response = await api.post(
+      `/provider/${providerId}/appointments/${apptId}/encounter/lock`
+    );
+    return response.data;
+  },
+
+  // 釋放 encounter 鎖定
+  unlockEncounter: async (providerId: number, apptId: number) => {
+    const response = await api.post(
+      `/provider/${providerId}/appointments/${apptId}/encounter/unlock`
+    );
+    return response.data;
+  },
+
   // 建立/更新就診記錄
   upsertEncounter: async (
     providerId: number,

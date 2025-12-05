@@ -364,6 +364,16 @@ class ProviderService:
                 detail="Cannot modify finalized encounter"
             )
         
+        # 如果 encounter 已存在，檢查鎖定狀態
+        if existing:
+            enct_id = existing["enct_id"]
+            is_locked, locked_by, locked_at = self.encounter_repo.check_encounter_lock(enct_id, provider_id)
+            if is_locked:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Encounter is being edited by another device (locked by provider {locked_by})"
+                )
+        
         # 如果不存在 encounter，則為創建新 encounter，需要檢查門診時間
         if existing is None:
             # 獲取 appointment 的 session 資訊
@@ -500,6 +510,35 @@ class ProviderService:
                 detail="處方已開立，無法再次開立"
             )
         return self.upsert_prescription(enct_id, items, status=2)
+    
+    def lock_encounter(self, provider_id: int, appt_id: int):
+        """鎖定 encounter，防止其他裝置同時編輯"""
+        existing = self.encounter_repo.get_encounter_by_appt(provider_id, appt_id)
+        if existing is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Encounter not found"
+            )
+        enct_id = existing["enct_id"]
+        success = self.encounter_repo.lock_encounter(enct_id, provider_id)
+        if not success:
+            is_locked, locked_by, locked_at = self.encounter_repo.check_encounter_lock(enct_id, provider_id)
+            if is_locked:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Encounter is being edited by another device (locked by provider {locked_by})"
+                )
+        return {"success": True, "enct_id": enct_id}
+    
+    def unlock_encounter(self, provider_id: int, appt_id: int):
+        """釋放 encounter 的鎖定"""
+        existing = self.encounter_repo.get_encounter_by_appt(provider_id, appt_id)
+        if existing is None:
+            # 如果 encounter 不存在，視為成功（無需釋放）
+            return {"success": True}
+        enct_id = existing["enct_id"]
+        success = self.encounter_repo.unlock_encounter(enct_id, provider_id)
+        return {"success": success, "enct_id": enct_id}
 
     def list_encounters_for_patient_by_provider(self, provider_id: int, patient_id: int):
         """醫師查詢某位病患在自己這裡的所有就診紀錄"""

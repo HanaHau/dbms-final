@@ -1,5 +1,5 @@
 // 醫師就診記錄頁面
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { providerApi } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
@@ -19,6 +19,7 @@ export const ProviderEncounter: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'encounter' | 'diagnosis' | 'prescription' | 'lab' | 'payment'>('encounter');
   const [sessionId, setSessionId] = useState<number | null>(null);
+  const isLockedRef = useRef<boolean>(false);
   
   // 病人歷史記錄
   const [patientHistory, setPatientHistory] = useState<{
@@ -88,6 +89,16 @@ export const ProviderEncounter: React.FC = () => {
       return;
     }
     loadData();
+    
+    // 清理函數：頁面卸載時釋放鎖定
+    return () => {
+      if (user && apptId && isLockedRef.current) {
+        providerApi.unlockEncounter(user.user_id, parseInt(apptId)).catch((err) => {
+          console.error('釋放鎖定失敗:', err);
+        });
+        isLockedRef.current = false;
+      }
+    };
   }, [user, userType, apptId]);
 
   const loadData = async () => {
@@ -119,6 +130,19 @@ export const ProviderEncounter: React.FC = () => {
       
       setEncounter(enct);
       if (enct) {
+        // 嘗試獲取鎖定
+        try {
+          await providerApi.lockEncounter(user.user_id, parseInt(apptId));
+          isLockedRef.current = true;
+        } catch (err: any) {
+          if (err.response?.status === 409) {
+            alert('此就診記錄正在被其他裝置編輯，無法同時編輯。');
+            navigate(-1); // 返回上一頁
+            return;
+          }
+          console.error('獲取鎖定失敗:', err);
+        }
+        
         setEncounterForm({
           status: enct.status,
           chief_complaint: enct.chief_complaint || '',
