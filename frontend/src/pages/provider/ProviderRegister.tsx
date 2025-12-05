@@ -1,22 +1,50 @@
 // 醫師註冊頁面
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { providerApi } from '../../services/api';
+import { providerApi, patientApi } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { Layout } from '../../components/Layout';
 import '../patient/Auth.css';
+
+interface Department {
+  dept_id: number;
+  name: string;
+}
 
 export const ProviderRegister: React.FC = () => {
   const [formData, setFormData] = useState({
     name: '',
     password: '',
     license_no: '',
-    dept_id: 1,
+    dept_id: 0,
   });
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [loadingDepartments, setLoadingDepartments] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const { login } = useAuth();
+
+  useEffect(() => {
+    loadDepartments();
+  }, []);
+
+  const loadDepartments = async () => {
+    try {
+      setLoadingDepartments(true);
+      const depts = await patientApi.listDepartments();
+      setDepartments(depts);
+      // 如果有科別，設置第一個為預設值
+      if (depts.length > 0) {
+        setFormData(prev => ({ ...prev, dept_id: depts[0].dept_id }));
+      }
+    } catch (err) {
+      console.error('載入科別列表失敗:', err);
+      setError('無法載入科別列表，請重新整理頁面');
+    } finally {
+      setLoadingDepartments(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,7 +60,7 @@ export const ProviderRegister: React.FC = () => {
 
     // 驗證科別 ID
     if (formData.dept_id <= 0) {
-      setError('請輸入有效的科別 ID');
+      setError('請選擇科別');
       setLoading(false);
       return;
     }
@@ -105,18 +133,25 @@ export const ProviderRegister: React.FC = () => {
               />
             </div>
             <div className="form-group">
-              <label>科別 ID</label>
-              <input
-                type="number"
+              <label>科別</label>
+              <select
                 value={formData.dept_id}
-                onChange={(e) => setFormData({ ...formData, dept_id: parseInt(e.target.value) || 1 })}
+                onChange={(e) => setFormData({ ...formData, dept_id: parseInt(e.target.value) })}
                 required
-                min="1"
-                placeholder="請輸入科別 ID（例如：1）"
-              />
-              <small style={{ color: '#6c757d', fontSize: '0.875rem', marginTop: '0.25rem', display: 'block' }}>
-                常見科別：1=內科, 2=外科, 3=兒科, 4=婦產科, 5=骨科（請根據實際資料庫設定）
-              </small>
+                disabled={loadingDepartments}
+              >
+                {loadingDepartments ? (
+                  <option value={0}>載入中...</option>
+                ) : departments.length === 0 ? (
+                  <option value={0}>無可用科別</option>
+                ) : (
+                  departments.map((dept) => (
+                    <option key={dept.dept_id} value={dept.dept_id}>
+                      {dept.name}
+                    </option>
+                  ))
+                )}
+              </select>
             </div>
             <div className="form-group">
               <label>密碼</label>
