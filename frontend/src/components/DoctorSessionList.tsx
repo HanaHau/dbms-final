@@ -1,6 +1,7 @@
 // 醫師會話列表項組件
 import React from 'react';
 import { AppointmentButton } from './AppointmentButton';
+import { getPeriodDisplayName } from '../lib/periodUtils';
 import './DoctorSessionList.css';
 
 export interface SessionForUI {
@@ -10,6 +11,7 @@ export interface SessionForUI {
   weekdayLabel: string; // e.g. "星期一"
   startTime: string; // "08:00"
   endTime: string; // "12:00"
+  period: number; // 1=早診, 2=午診, 3=晚診
   capacity: number;
   remaining: number;
 }
@@ -32,7 +34,7 @@ export const DoctorSessionList: React.FC<DoctorSessionListProps> = ({
           <div className="doctor-session-name">{session.doctorName}</div>
           <div className="doctor-session-details">
             <span className="doctor-session-time">
-              {session.startTime} - {session.endTime}
+              {getPeriodDisplayName(session.period)} {session.startTime} - {session.endTime}
             </span>
             <span className="doctor-session-remaining">
               剩餘名額：{session.remaining} / {session.capacity}

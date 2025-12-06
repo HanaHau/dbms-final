@@ -12,16 +12,18 @@ class SessionRepository:
         """
         列出某位醫師的門診時段，可用日期區間與門診狀態過濾。
         回傳每個 session 目前已掛號人數 booked_count。
-        自動將已過期的 session status 更新為 0（停診）。
+        自動將已過期的 session status 更新為 2（停診）。
+        status: 1 = open (開診), 2 = closed (停診)
         """
         conn = get_pg_conn()
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 # 先自動更新已過期的 session status（使用 period 計算結束時間）
+                # status: 1 = open (開診), 2 = closed (停診)
                 cur.execute(
                     """
                     UPDATE CLINIC_SESSION
-                    SET status = 0
+                    SET status = 2
                     WHERE provider_id = %s
                       AND status = 1
                       AND (
@@ -155,10 +157,11 @@ class SessionRepository:
             conn.close()
 
     @staticmethod
-    def cancel_clinic_session(provider_user_id, session_id, cancel_status=0):
+    def cancel_clinic_session(provider_user_id, session_id, cancel_status=2):
         """
-        醫師取消門診時段（把 status 更新為 cancel_status，例如 0 = 停診）。
+        醫師取消門診時段（把 status 更新為 cancel_status，例如 2 = 停診）。
         回傳 True/False 表示有沒有更新到。
+        status: 1 = open (開診), 2 = closed (停診)
         """
         conn = get_pg_conn()
         try:
@@ -181,7 +184,8 @@ class SessionRepository:
     def get_session_by_id(session_id):
         """
         根據 session_id 取得門診時段資訊，包含 provider 和 department 資訊。
-        自動將已過期的 session status 更新為 0（停診）。
+        自動將已過期的 session status 更新為 2（停診）。
+        status: 1 = open (開診), 2 = closed (停診)
         """
         conn = get_pg_conn()
         try:
@@ -190,7 +194,7 @@ class SessionRepository:
                 cur.execute(
                     """
                     UPDATE CLINIC_SESSION
-                    SET status = 0
+                    SET status = 2
                     WHERE session_id = %s
                       AND status = 1
                       AND (
@@ -351,26 +355,33 @@ class SessionRepository:
         conn = get_pg_conn()
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # 先自動更新已過期的 session status（使用 period 計算結束時間）
-                cur.execute(
-                    """
-                    UPDATE CLINIC_SESSION
-                    SET status = 0
-                    WHERE status = 1
-                      AND (
-                          date < CURRENT_DATE 
-                          OR (
-                              date = CURRENT_DATE 
-                              AND (
-                                  (period = 1 AND CURRENT_TIME >= TIME '12:00:00')
-                                  OR (period = 2 AND CURRENT_TIME >= TIME '17:00:00')
-                                  OR (period = 3 AND CURRENT_TIME >= TIME '21:00:00')
+                try:
+                    # 先自動更新已過期的 session status（使用 period 計算結束時間）
+                    # status: 1 = open (開診), 2 = closed (停診)
+                    cur.execute(
+                        """
+                        UPDATE CLINIC_SESSION
+                        SET status = 2
+                        WHERE status = 1
+                          AND (
+                              date < CURRENT_DATE 
+                              OR (
+                                  date = CURRENT_DATE 
+                                  AND (
+                                      (period = 1 AND CURRENT_TIME >= TIME '12:00:00')
+                                      OR (period = 2 AND CURRENT_TIME >= TIME '17:00:00')
+                                      OR (period = 3 AND CURRENT_TIME >= TIME '21:00:00')
+                                  )
                               )
-                          )
-                      );
-                    """
-                )
-                conn.commit()
+                          );
+                        """
+                    )
+                    conn.commit()
+                except Exception as update_error:
+                    # 如果更新失敗（可能是約束問題），記錄錯誤但繼續執行查詢
+                    conn.rollback()
+                    print(f"Warning: Failed to update expired sessions: {update_error}")
+                    # 繼續執行，不中斷查詢
 
                 conditions = []
                 params = []
@@ -405,7 +416,7 @@ class SessionRepository:
                         u.name AS provider_name,
                         pr.license_no,
                         d.name AS dept_name,
-                        d.location AS department_location,
+                        COALESCE(d.location, '') AS department_location,
                         COUNT(CASE WHEN COALESCE(ash_latest.to_status, 1) != 0 THEN a.appt_id END) AS booked_count
                     FROM CLINIC_SESSION cs
                     JOIN PROVIDER pr ON cs.provider_id = pr.user_id
@@ -441,15 +452,21 @@ class SessionRepository:
                     row["start_time"] = period_to_start_time(row["period"])
                     row["end_time"] = period_to_end_time(row["period"])
                 return rows
+        except Exception as e:
+            print(f"Error in search_sessions: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
         finally:
             conn.close()
 
     @staticmethod
     def update_expired_sessions(provider_id=None):
         """
-        更新所有已過期的門診時段狀態為停診（status = 0）。
+        更新所有已過期的門診時段狀態為停診（status = 2）。
         如果提供 provider_id，只更新該醫師的門診時段。
         回傳更新的數量。
+        status: 1 = open (開診), 2 = closed (停診)
         """
         conn = get_pg_conn()
         try:
@@ -458,7 +475,7 @@ class SessionRepository:
                     cur.execute(
                         """
                         UPDATE CLINIC_SESSION
-                        SET status = 0
+                        SET status = 2
                         WHERE provider_id = %s
                           AND status = 1
                           AND (
@@ -479,7 +496,7 @@ class SessionRepository:
                     cur.execute(
                         """
                         UPDATE CLINIC_SESSION
-                        SET status = 0
+                        SET status = 2
                         WHERE status = 1
                           AND (
                               date < CURRENT_DATE 

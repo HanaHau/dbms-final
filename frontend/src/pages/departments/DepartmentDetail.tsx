@@ -4,7 +4,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Layout } from '../../components/Layout';
 import { DoctorSessionList } from '../../components/DoctorSessionList';
 import type { SessionForUI } from '../../components/DoctorSessionList';
-import { getDepartmentCategory } from '../../lib/departmentCategory';
 import { formatDateWithWeekday } from '../../lib/dateFormat';
 import { patientApi } from '../../services/api';
 import type { ClinicSession } from '../../types';
@@ -17,6 +16,8 @@ export const DepartmentDetail: React.FC = () => {
     dept_id: number;
     name: string;
     location?: string;
+    category_id?: number;
+    category_name?: string;
   } | null>(null);
   const [sessions, setSessions] = useState<SessionForUI[]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,6 +55,13 @@ export const DepartmentDetail: React.FC = () => {
         dept_id: deptData.dept_id,
       });
 
+      // 確保 sessionsData 是陣列
+      if (!sessionsData || !Array.isArray(sessionsData)) {
+        console.warn('API 返回的 sessionsData 不是陣列:', sessionsData);
+        setSessions([]);
+        return;
+      }
+
       // 轉換為 UI 格式
       const formattedSessions: SessionForUI[] = sessionsData.map(
         (session: ClinicSession) => {
@@ -69,7 +77,7 @@ export const DepartmentDetail: React.FC = () => {
           ];
           const weekdayLabel = weekdayLabels[date.getDay()];
 
-          const formatTime = (timeStr: string) => {
+          const formatTime = (timeStr: string | undefined) => {
             if (!timeStr) return '';
             const time = timeStr.split(':');
             return `${time[0]}:${time[1]}`;
@@ -82,8 +90,9 @@ export const DepartmentDetail: React.FC = () => {
             weekdayLabel,
             startTime: formatTime(session.start_time),
             endTime: formatTime(session.end_time),
+            period: session.period,
             capacity: session.capacity,
-            remaining: session.capacity - (session.booked_count || 0),
+            remaining: Math.max(0, session.capacity - (session.booked_count || 0)),
           };
         }
       );
@@ -154,13 +163,14 @@ export const DepartmentDetail: React.FC = () => {
     );
   }
 
-  const categoryLabel = getDepartmentCategory(department.name);
+  // 使用資料庫的分類資訊，如果沒有則顯示「門診」
+  const categoryLabel = department.category_name ? `${department.category_name} 門診` : '門診';
 
   return (
     <Layout>
       <div className="department-detail-page">
         <h1 className="department-detail-title">{department.name}</h1>
-        <p className="department-detail-subtitle">{categoryLabel} 門診</p>
+        <p className="department-detail-subtitle">{categoryLabel}</p>
 
         {sortedDates.length === 0 ? (
           <p className="department-detail-empty">

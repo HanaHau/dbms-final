@@ -61,3 +61,19 @@ Thumbs.db
 htmlcov/
 .tox/
 
+# Documentation and reports
+*.md
+*.MD
+!README.md
+
+# LaTeX compilation files
+*.aux
+*.log
+*.out
+*.toc
+*.pdf
+*.tex
+
+# Delivery and checklist files
+DELIVERY_CHECKLIST.txt
+IMPLEMENTATION_COMPLETION_CERTIFICATE.txt

@@ -142,6 +142,20 @@ export const patientApi = {
     }
   },
 
+  // 列出所有分類
+  listCategories: async () => {
+    try {
+      const response = await api.get('/departments/categories');
+      return response.data;
+    } catch (error: any) {
+      // 如果端點不存在，返回空陣列
+      if (error.response?.status === 404) {
+        return [];
+      }
+      throw error;
+    }
+  },
+
   // 根據名稱獲取部門
   getDepartmentByName: async (name: string) => {
     try {

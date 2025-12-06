@@ -300,8 +300,8 @@ class ProviderService:
         return row
 
     def cancel_session(self, provider_id: int, session_id: int):
-        """醫師取消門診（將 status 設為 0 = 停診）"""
-        ok = self.session_repo.cancel_clinic_session(provider_id, session_id, cancel_status=0)
+        """醫師取消門診（將 status 設為 2 = 停診）status: 1 = open, 2 = closed"""
+        ok = self.session_repo.cancel_clinic_session(provider_id, session_id, cancel_status=2)  # status: 1 = open, 2 = closed
         if not ok:
             raise HTTPException(
                 status_code=404, detail="Session not found or not owned by provider"
@@ -310,7 +310,7 @@ class ProviderService:
 
     def update_expired_sessions(self, provider_id: int = None):
         """
-        更新所有已過期的門診時段狀態為停診（status = 0）。
+        更新所有已過期的門診時段狀態為停診（status = 2）。status: 1 = open, 2 = closed
         如果提供 provider_id，只更新該醫師的門診時段。
         """
         updated_count = self.session_repo.update_expired_sessions(provider_id)

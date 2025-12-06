@@ -38,18 +38,24 @@ export const DepartmentSearchWrapper: React.FC<DepartmentSearchWrapperProps> = (
     return grouped;
   }, [filteredDepartments]);
 
-  // 分類順序（確保顯示順序一致）
-  const categoryOrder = [
-    '內科系',
-    '外科系',
-    '婦幼科',
-    '五官科',
-    '精神科',
-    '牙科',
-    '復健科',
-    '其他',
-    '未分類',
-  ];
+  // 分類順序：從資料庫獲取，如果沒有則使用預設順序
+  // 注意：這裡的分類順序應該從 API 獲取，但目前先使用動態排序
+  // 按分類出現的順序排列（保持資料庫的順序）
+  const categoryOrder = useMemo(() => {
+    const categories = new Set<string>();
+    filteredDepartments.forEach((dept) => {
+      if (dept.category) {
+        categories.add(dept.category);
+      }
+    });
+    // 將未分類放在最後
+    const sorted = Array.from(categories).sort((a, b) => {
+      if (a === '未分類') return 1;
+      if (b === '未分類') return -1;
+      return a.localeCompare(b, 'zh-TW');
+    });
+    return sorted;
+  }, [filteredDepartments]);
 
   return (
     <div className="department-search-wrapper">

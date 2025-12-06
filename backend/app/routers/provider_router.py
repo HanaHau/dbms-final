@@ -174,7 +174,7 @@ def api_cancel_session(provider_id: int, session_id: int):
 @router.post("/{provider_id}/sessions/update-expired")
 def api_update_expired_sessions(provider_id: int):
     """
-    更新該醫師所有已過期的門診時段狀態為停診（status = 0）。
+    更新該醫師所有已過期的門診時段狀態為停診（status = 2）。status: 1 = open, 2 = closed
     這個端點會立即更新資料庫，不需要等待查詢時才更新。
     """
     return service.update_expired_sessions(provider_id)
@@ -183,7 +183,7 @@ def api_update_expired_sessions(provider_id: int):
 @router.post("/sessions/update-expired-all")
 def api_update_expired_sessions_all():
     """
-    更新所有醫師已過期的門診時段狀態為停診（status = 0）。
+    更新所有醫師已過期的門診時段狀態為停診（status = 2）。status: 1 = open, 2 = closed
     這個端點會立即更新資料庫，不需要等待查詢時才更新。
     """
     return service.update_expired_sessions()

@@ -48,6 +48,18 @@ async def startup_event():
         from datetime import datetime
         
         print("正在處理門診結束後未報到的掛號...")
+        
+        # 啟動定時任務調度器（優化版）
+        print("初始化定時任務調度器...")
+        try:
+            from .scheduler import init_scheduler, start_scheduler
+            init_scheduler()
+            start_scheduler()
+            print("✅ 定時任務調度器已啟動（每 5 分鐘刷新物化視圖）")
+        except ImportError:
+            print("⚠️  APScheduler 未安裝，跳過定時任務")
+        except Exception as e:
+            print(f"⚠️  定時任務啟動失敗: {str(e)}")
         conn = get_pg_conn()
         try:
             conn.autocommit = False
@@ -171,16 +183,37 @@ def root():
 @app.get("/departments")
 def api_list_departments():
     """
-    列出所有部門。
+    列出所有部門，包含分類資訊。
     回傳格式：
     [
-      { "dept_id": 1, "name": "內科", "location": "..." },
+      { 
+        "dept_id": 1, 
+        "name": "內科", 
+        "location": "...",
+        "category_id": 1,
+        "category_name": "內科系"
+      },
       ...
     ]
     """
     from .repositories import DepartmentRepository
     repo = DepartmentRepository()
     return repo.list_all_departments()
+
+
+@app.get("/departments/categories")
+def api_list_categories():
+    """
+    列出所有分類。
+    回傳格式：
+    [
+      { "category_id": 1, "name": "內科系" },
+      ...
+    ]
+    """
+    from .repositories import DepartmentRepository
+    repo = DepartmentRepository()
+    return repo.list_all_categories()
 
 
 @app.get("/departments/by-name")
