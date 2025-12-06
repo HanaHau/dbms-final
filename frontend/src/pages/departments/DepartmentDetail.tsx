@@ -1,17 +1,21 @@
 // 部門詳情頁面 - 顯示該部門的醫師和會話
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Layout } from '../../components/Layout';
 import { DoctorSessionList } from '../../components/DoctorSessionList';
 import type { SessionForUI } from '../../components/DoctorSessionList';
 import { formatDateWithWeekday } from '../../lib/dateFormat';
 import { patientApi } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
+import { departmentClickLogger } from '../../lib/departmentClickLogger';
 import type { ClinicSession } from '../../types';
 import './DepartmentDetail.css';
 
 export const DepartmentDetail: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
+  const { user, userType } = useAuth();
+  const loggedSlugRef = useRef<string | null>(null); // 追蹤已記錄的 slug
   const [department, setDepartment] = useState<{
     dept_id: number;
     name: string;
@@ -23,16 +27,7 @@ export const DepartmentDetail: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!slug) {
-      setError('無效的部門連結');
-      setLoading(false);
-      return;
-    }
-    loadDepartmentData();
-  }, [slug]);
-
-  const loadDepartmentData = async () => {
+  const loadDepartmentData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -49,6 +44,24 @@ export const DepartmentDetail: React.FC = () => {
       }
 
       setDepartment(deptData);
+
+      // 記錄科別點擊（每個 slug 只記錄一次）
+      if (slug && loggedSlugRef.current !== slug) {
+        loggedSlugRef.current = slug;
+        try {
+          await departmentClickLogger.logClick({
+            userId: user?.user_id ?? null,
+            userType: userType ?? null,
+            userName: user?.name ?? null,
+            deptId: deptData.dept_id,
+            deptName: deptData.name,
+            slug: slug,
+            category: deptData.category_name,
+          });
+        } catch (error) {
+          console.error('記錄科別點擊失敗:', error);
+        }
+      }
 
       // 獲取該部門的會話
       const sessionsData = await patientApi.listSessions({
@@ -119,7 +132,18 @@ export const DepartmentDetail: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [slug, user, userType]);
+
+  useEffect(() => {
+    if (!slug) {
+      setError('無效的部門連結');
+      setLoading(false);
+      return;
+    }
+    // 當 slug 變化時，重置記錄標記
+    loggedSlugRef.current = null;
+    loadDepartmentData();
+  }, [slug, loadDepartmentData]);
 
   // 按日期分組
   const groupedByDate: Record<string, SessionForUI[]> = {};

@@ -74,3 +74,19 @@
   background-color: #f8d7da;
   color: #721c24;
 }
+
+.btn-disabled {
+  background-color: #e9ecef !important;
+  color: #6c757d !important;
+  border-color: #dee2e6 !important;
+  cursor: not-allowed !important;
+  opacity: 0.6;
+}
+
+.btn-disabled:hover {
+  background-color: #e9ecef !important;
+  color: #6c757d !important;
+  border-color: #dee2e6 !important;
+  transform: none !important;
+  box-shadow: none !important;
+}

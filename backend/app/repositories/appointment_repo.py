@@ -313,23 +313,51 @@ class AppointmentRepository:
                     )
                     updated_count += 1
                 
-                # 3. 累計病人 no_show_count：一次 UPDATE 完成（set-based）
+                # 3. 為每個未報到的掛號插入 no_show_event 記錄（避免重複）
                 if updated_count > 0:
                     try:
+                        from datetime import datetime
+                        for row in expired_rows:
+                            appt_id = row["appt_id"]
+                            # 檢查是否已經存在記錄
+                            cur.execute(
+                                """
+                                SELECT 1 FROM no_show_event
+                                WHERE patient_id = %s AND appt_id = %s;
+                                """,
+                                (patient_id, appt_id),
+                            )
+                            if not cur.fetchone():
+                                cur.execute(
+                                    """
+                                    INSERT INTO no_show_event (patient_id, appt_id, recorded_at)
+                                    VALUES (%s, %s, %s);
+                                    """,
+                                    (patient_id, appt_id, datetime.now()),
+                                )
+                        
+                        # 檢查是否需要設置 banned_until
                         cur.execute(
                             """
-                            UPDATE PATIENT
-                            SET 
-                                no_show_count = COALESCE(no_show_count, 0) + %s,
-                                banned_until = CASE 
-                                    WHEN COALESCE(no_show_count, 0) + %s >= 3 
-                                        THEN %s
-                                    ELSE banned_until
-                                END
-                            WHERE user_id = %s;
+                            SELECT COUNT(*) AS no_show_count
+                            FROM no_show_event
+                            WHERE patient_id = %s;
                             """,
-                            (updated_count, updated_count, banned_until, patient_id),
+                            (patient_id,),
                         )
+                        count_row = cur.fetchone()
+                        new_count = count_row["no_show_count"] if count_row else 0
+                        
+                        if new_count >= 3:
+                            cur.execute(
+                                """
+                                UPDATE patient
+                                SET banned_until = %s
+                                WHERE user_id = %s
+                                  AND (banned_until IS NULL OR banned_until < %s);
+                                """,
+                                (banned_until, patient_id, banned_until),
+                            )
                     except Exception as e:
                         # 不讓這段影響主要邏輯（但期末報告可以提：這是「部分失敗」的處理策略）
                         print(f"⚠️ 累計爽約次數失敗 (patient_id={patient_id}): {e}")

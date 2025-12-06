@@ -75,36 +75,18 @@ export const ProviderAppointments: React.FC = () => {
                   <td>{appt.patient_name}</td>
                   <td>{getStatusBadge(appt.status)}</td>
                   <td>
-                    {/* 已報到（狀態 2）：可以建立或查看就診記錄 */}
-                    {appt.status === 2 && (
-                      <button
-                        className="btn btn-primary btn-small"
-                        onClick={() => navigate(`/provider/encounter/${appt.appt_id}`)}
-                      >
-                        {appt.has_encounter ? '查看/編輯就診記錄' : '建立就診記錄'}
-                      </button>
-                    )}
-                    {/* 已完成（狀態 3）：可以查看/編輯就診記錄 */}
-                    {appt.status === 3 && (
-                      <button
-                        className="btn btn-primary btn-small"
-                        onClick={() => navigate(`/provider/encounter/${appt.appt_id}`)}
-                      >
-                        {appt.encounter_status === 2 ? '查看就診記錄' : '查看/編輯就診記錄'}
-                      </button>
-                    )}
-                    {/* 已預約（狀態 1）或未報到（狀態 5）：如果有就診記錄可以查看，否則可以建立 */}
-                    {(appt.status === 1 || appt.status === 5) && (
-                      <button
-                        className="btn btn-primary btn-small"
-                        onClick={() => navigate(`/provider/encounter/${appt.appt_id}`)}
-                      >
-                        {appt.has_encounter 
-                          ? (appt.encounter_status === 2 ? '查看就診記錄' : '查看/編輯就診記錄')
-                          : '建立就診記錄'
+                    {/* 第一個按鈕：只有已報到（狀態 2）時才能按，否則灰色禁用 */}
+                    <button
+                      className={`btn btn-small ${appt.status === 2 ? 'btn-primary' : 'btn-disabled'}`}
+                      onClick={() => {
+                        if (appt.status === 2) {
+                          navigate(`/provider/encounter/${appt.appt_id}`);
                         }
-                      </button>
-                    )}
+                      }}
+                      disabled={appt.status !== 2}
+                    >
+                      建立與查看就診記錄
+                    </button>
                   </td>
                 </tr>
               ))}

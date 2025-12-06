@@ -126,38 +126,48 @@ async def startup_event():
                             conn, appt_id, current_status, 5, provider_id
                         )
                         
-                        # 累計爽約次數（使用現有連接）
-                        from datetime import date, timedelta
+                        # 累計爽約次數：插入 no_show_event 記錄（避免重複）
+                        from datetime import date, timedelta, datetime
+                        # 檢查是否已經存在記錄
                         cur.execute(
                             """
-                            SELECT COALESCE(no_show_count, 0) AS no_show_count
-                            FROM PATIENT
-                            WHERE user_id = %s;
+                            SELECT 1 FROM no_show_event
+                            WHERE patient_id = %s AND appt_id = %s;
+                            """,
+                            (patient_id, appt_id),
+                        )
+                        if not cur.fetchone():
+                            cur.execute(
+                                """
+                                INSERT INTO no_show_event (patient_id, appt_id, recorded_at)
+                                VALUES (%s, %s, %s);
+                                """,
+                                (patient_id, appt_id, datetime.now()),
+                            )
+                        
+                        # 檢查是否需要設置 banned_until
+                        cur.execute(
+                            """
+                            SELECT COUNT(*) AS no_show_count
+                            FROM no_show_event
+                            WHERE patient_id = %s;
                             """,
                             (patient_id,),
                         )
-                        patient_row = cur.fetchone()
-                        if patient_row:
-                            new_count = (patient_row["no_show_count"] or 0) + 1
-                            if new_count >= 3:
-                                banned_until = date.today() + timedelta(days=14)
-                                cur.execute(
-                                    """
-                                    UPDATE PATIENT
-                                    SET no_show_count = %s, banned_until = %s
-                                    WHERE user_id = %s;
-                                    """,
-                                    (new_count, banned_until, patient_id),
-                                )
-                            else:
-                                cur.execute(
-                                    """
-                                    UPDATE PATIENT
-                                    SET no_show_count = %s
-                                    WHERE user_id = %s;
-                                    """,
-                                    (new_count, patient_id),
-                                )
+                        count_row = cur.fetchone()
+                        new_count = count_row["no_show_count"] if count_row else 0
+                        
+                        if new_count >= 3:
+                            banned_until = date.today() + timedelta(days=14)
+                            cur.execute(
+                                """
+                                UPDATE patient
+                                SET banned_until = %s
+                                WHERE user_id = %s
+                                  AND (banned_until IS NULL OR banned_until < %s);
+                                """,
+                                (banned_until, patient_id, banned_until),
+                            )
                     
                     processed_count += 1
                 

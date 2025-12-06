@@ -15,6 +15,7 @@ import { ProviderAppointments } from './pages/provider/ProviderAppointments';
 import { ProviderEncounter } from './pages/provider/ProviderEncounter';
 import { Departments } from './pages/departments/Departments';
 import { DepartmentDetail } from './pages/departments/DepartmentDetail';
+import { DepartmentClickStats } from './pages/DepartmentClickStats';
 import './App.css';
 
 function App() {
@@ -27,6 +28,9 @@ function App() {
           {/* 部門選擇頁面 */}
           <Route path="/departments" element={<Departments />} />
           <Route path="/departments/:slug" element={<DepartmentDetail />} />
+          
+          {/* 科別點擊統計 */}
+          <Route path="/stats/department-clicks" element={<DepartmentClickStats />} />
           
           {/* 病人端路由 */}
           <Route path="/patient/login" element={<PatientLogin />} />

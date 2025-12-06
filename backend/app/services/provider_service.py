@@ -144,8 +144,6 @@ class ProviderService:
         Returns:
             如果有重疊，返回重疊的時段資訊；否則返回 None
         """
-        from ..lib.period_utils import check_period_overlap
-        
         # 獲取該醫生在同一天的所有活躍時段
         sessions = self.session_repo.list_clinic_sessions_for_provider(
             provider_user_id=provider_id,
