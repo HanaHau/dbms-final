@@ -59,12 +59,21 @@ ON CONFLICT (dept_id) DO NOTHING;
    ON CONFLICT (dept_id) DO NOTHING;
    ```
 
-3. **驗證設定**
+3. **建立資料庫索引（提升查詢效能）**
+   ```bash
+   psql -d dbms -f create_indexes.sql
+   ```
+   或使用 Python 執行：
+   ```bash
+   python -c "import psycopg2; from app.config import PG_DSN; conn = psycopg2.connect(PG_DSN); cur = conn.cursor(); cur.execute(open('create_indexes.sql').read()); conn.commit(); conn.close(); print('索引建立完成')"
+   ```
+
+4. **驗證設定**
    ```bash
    python check_all_sequences.py
    ```
 
-4. **測試註冊功能**
+5. **測試註冊功能**
    ```bash
    python debug_register.py provider "測試醫師" "test123" "DOC001" 1
    ```
@@ -84,4 +93,42 @@ ON CONFLICT (dept_id) DO NOTHING;
 **注意：** 
 - `USER` 表名需要引號：`"USER"`
 - 其他表名是小寫，不需要引號：`clinic_session`
+
+## 建立資料庫索引
+
+為了提升查詢效能，建議建立必要的索引：
+
+### 執行索引建立腳本
+
+```bash
+cd backend
+psql -d dbms -f create_indexes.sql
+```
+
+### 索引說明
+
+`create_indexes.sql` 會建立以下索引：
+
+- **APPOINTMENT_STATUS_HISTORY**: 用於快速查詢掛號最新狀態
+- **APPOINTMENT**: 用於快速查詢病人的掛號記錄和門診時段的掛號清單
+- **CLINIC_SESSION**: 用於快速查詢門診時段（根據醫師、日期、狀態篩選）
+- **ENCOUNTER**: 用於快速查詢就診記錄
+- **PRESCRIPTION**: 用於快速查詢處方箋
+- **DIAGNOSIS**: 用於快速查詢診斷記錄
+- **LAB_RESULT**: 用於快速查詢檢驗結果
+- **PAYMENT**: 用於快速查詢繳費記錄
+- **INCLUDE**: 用於快速查詢處方用藥明細
+
+### 檢查已建立的索引
+
+```sql
+SELECT 
+    schemaname,
+    tablename,
+    indexname,
+    indexdef
+FROM pg_indexes
+WHERE schemaname = 'public'
+ORDER BY tablename, indexname;
+```
 

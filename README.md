@@ -68,7 +68,12 @@ dbms-final/
 │   │   └── analytics/                 # 資料分析功能
 │   │       └── patient_analysis.py
 │   ├── requirements.txt                # Python 依賴套件
-│   └── [各種工具腳本]                  # 資料庫維護腳本
+│   ├── fix_all_sequences.py            # 修復所有表的 ID 序列
+│   ├── check_all_sequences.py          # 檢查序列設定
+│   ├── create_indexes.sql              # 建立資料庫索引（提升查詢效能）
+│   ├── debug_register.py               # 測試註冊功能
+│   ├── DATABASE_SETUP.md               # 資料庫設定指南
+│   └── CORS_FIX.md                     # CORS 問題修復指南
 │
 ├── frontend/                          # 前端應用程式
 │   ├── src/
@@ -220,6 +225,19 @@ PG_PASSWORD=your_password
 #### 初始化資料庫
 
 執行資料庫 schema 建立腳本（請參考 `backend/DATABASE_SETUP.md`）。
+
+**重要：建立索引以提升查詢效能**
+
+```bash
+cd backend
+psql -d dbms -f create_indexes.sql
+```
+
+此腳本會建立必要的索引，大幅提升查詢效能，特別是：
+- 掛號狀態查詢
+- 病人掛號記錄查詢
+- 門診時段搜尋
+- 就診記錄查詢
 
 ### 2. 後端設定
 
