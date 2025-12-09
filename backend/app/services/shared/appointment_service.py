@@ -137,11 +137,12 @@ class AppointmentService:
         """
         病人報到（checkin）：
         - 驗證 patient_id 是否匹配
-        - 檢查門診時間是否在範圍內
+        - 檢查門診日期是否為今天（當天任何時間都可以報到）
         - 更新狀態為「已報到」（狀態 2 = 已報到）
         - 寫入 APPOINTMENT_STATUS_HISTORY
         """
         from ...repositories import SessionRepository
+        from datetime import date
         
         # 獲取 appointment 的 session_id
         appointment = self.appointment_repo.get_appointment_by_id(appt_id)
@@ -161,15 +162,13 @@ class AppointmentService:
                 detail="Session not found"
             )
         
-        # 檢查門診時間是否在範圍內
-        is_valid, _ = SessionRepository.is_session_time_valid(
-            session_info["date"], 
-            session_info["period"]
-        )
-        if not is_valid:
+        # 檢查門診日期是否為今天（當天任何時間都可以報到）
+        session_date = session_info["date"]
+        today = date.today()
+        if session_date != today:
             raise HTTPException(
                 status_code=400,
-                detail="只能在門診時間內報到"
+                detail="只能在門診當天報到"
             )
         
         result = self.appointment_repo.update_appointment_status_by_patient(
